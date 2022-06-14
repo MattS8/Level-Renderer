@@ -56,26 +56,26 @@ int LevelParser::Parser::ParseGameLevel(const char* filePath)
 			if (ParseMatrix(line2Parse) != LevelParser::OK)
 				return ErrMalformedFile();
 		}
-		// Handle Camera Object
-		else if (std::strcmp(line2Parse.c_str(), "CAMERA") == 0)
-		{
-			if (!std::getline(fileHandler, line2Parse))
-				return ErrMalformedFile();
-			if (LoadCamera(line2Parse.c_str()) != LevelParser::OK)
-				return ErrMalformedFile();
-			if (ParseMatrix(line2Parse) != LevelParser::OK)
-				return ErrMalformedFile();
-		}
-		// Handle Light Object
-		else if (std::strcmp(line2Parse.c_str(), "LIGHT") == 0)
-		{
-			if (!std::getline(fileHandler, line2Parse))
-				return ErrMalformedFile();
-			if (LoadLight(line2Parse.c_str()) != LevelParser::OK)
-				return ErrMalformedFile();
-			if (ParseMatrix(line2Parse) != LevelParser::OK)
-				return ErrMalformedFile();
-		}
+		//// Handle Camera Object
+		//else if (std::strcmp(line2Parse.c_str(), "CAMERA") == 0)
+		//{
+		//	if (!std::getline(fileHandler, line2Parse))
+		//		return ErrMalformedFile();
+		//	if (LoadCamera(line2Parse.c_str()) != LevelParser::OK)
+		//		return ErrMalformedFile();
+		//	if (ParseMatrix(line2Parse) != LevelParser::OK)
+		//		return ErrMalformedFile();
+		//}
+		//// Handle Light Object
+		//else if (std::strcmp(line2Parse.c_str(), "LIGHT") == 0)
+		//{
+		//	if (!std::getline(fileHandler, line2Parse))
+		//		return ErrMalformedFile();
+		//	if (LoadLight(line2Parse.c_str()) != LevelParser::OK)
+		//		return ErrMalformedFile();
+		//	if (ParseMatrix(line2Parse) != LevelParser::OK)
+		//		return ErrMalformedFile();
+		//}
 	}
 }
 
@@ -112,9 +112,6 @@ int LevelParser::Parser::ParseMatrix(std::string tag)
 		if (retVal = ParseMatrixLine(matrix, i) != LevelParser::OK)
 			return retVal;
 	}
-
-	if (retVal != LevelParser::OK)
-		return retVal;
 
 	// Add matrix to list
 	auto positionsList = modelPositions.find(tag);
