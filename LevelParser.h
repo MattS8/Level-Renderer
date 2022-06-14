@@ -11,7 +11,11 @@ namespace LevelParser
 {
 	const int ERR_OPENING_FILE = 1;
 	const int ERR_MALFORMED_FILE = 2;
+	const int ERR_MODEL_FILE_PATH = 3;
 	const int OK = 0;
+
+	extern const char* modelAssetPath;
+	extern const char* moelAssetExt;
 
 	class Parser
 	{
@@ -24,9 +28,10 @@ namespace LevelParser
 		// Error Functions
 		int ErrOpenigFile();
 		int ErrMalformedFile();
+		int ErrFindingModelFile(std::string& filePath);
 
 		// Load Handlers
-		int LoadMesh(const char* meshFile);
+		int LoadMesh(std::string& meshFileName);
 		int LoadCamera(const char* cameraFile);
 		int LoadLight(const char* lightFile);
 		int ParseMatrix(std::string tag);

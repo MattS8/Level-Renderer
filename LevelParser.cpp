@@ -3,7 +3,10 @@
 #include <cctype>
 #include <locale>
 
-/* Solution found from https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring */
+/**
+ * Trim solution found from: 
+ * https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring 
+ */
 
 // trim from start (in place)
 static inline void trimLeft(std::string& str) {
@@ -25,6 +28,8 @@ static inline void trim(std::string& str) {
 	trimRight(str);
 }
 
+const char* LevelParser::modelAssetPath = "../Model Assets/H2B/";
+const char* LevelParser::moelAssetExt = ".h2b";
 
 int LevelParser::Parser::ParseGameLevel(const char* filePath)
 {
@@ -51,7 +56,7 @@ int LevelParser::Parser::ParseGameLevel(const char* filePath)
 		{
 			if (!std::getline(fileHandler, line2Parse))
 				return ErrMalformedFile();
-			if (LoadMesh(line2Parse.c_str()) != LevelParser::OK)
+			if (LoadMesh(line2Parse) != LevelParser::OK)
 				return ErrMalformedFile();
 			if (ParseMatrix(line2Parse) != LevelParser::OK)
 				return ErrMalformedFile();
@@ -97,12 +102,13 @@ int LevelParser::Parser::ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset)
 		&matrix.data[(offset * 4) + 2],
 		&matrix.data[(offset * 4) + 3]);
 
-	return numItemsScanned == 4 ? LevelParser::OK : LevelParser::ERR_MALFORMED_FILE;
+	return numItemsScanned == 4 
+		? LevelParser::OK 
+		: LevelParser::ERR_MALFORMED_FILE;
 }
 
 int LevelParser::Parser::ParseMatrix(std::string tag)
 {
-	std::string tagStr = std::string(tag);
 	GW::MATH::GMATRIXF matrix;
 
 	// Parse matrix line-by-line
@@ -129,8 +135,24 @@ int LevelParser::Parser::ParseMatrix(std::string tag)
 	return LevelParser::OK;
 }
 
-int LevelParser::Parser::LoadMesh(const char* meshFile)
+int LevelParser::Parser::LoadMesh(std::string& meshName)
 {
+	int dotPos = meshName.find('.');
+	if (dotPos != std::string::npos)
+		meshName = meshName.substr(0, dotPos);
+
+	auto modelItter = models.find(meshName);
+	if (modelItter != models.end())
+		return LevelParser::OK;
+
+	std::string fullPath = std::string(modelAssetPath) 
+		+ meshName 
+		+ moelAssetExt;
+	if (!h2bParser.Parse(fullPath.c_str()))
+		return ErrFindingModelFile(fullPath);
+	
+	models[meshName] = h2bParser.model;
+
 	return LevelParser::OK;
 }
 
@@ -145,6 +167,12 @@ int LevelParser::Parser::LoadLight(const char* lightFile)
 }
 
 // Error Functions
+
+int LevelParser::Parser::ErrFindingModelFile(std::string& filePath)
+{
+	std::cerr << "Could not open file: " << filePath << "\n";
+	return LevelParser::ERR_OPENING_FILE;
+}
 
 int LevelParser::Parser::ErrMalformedFile()
 {

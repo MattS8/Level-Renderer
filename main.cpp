@@ -26,8 +26,6 @@ int main()
 	LevelParser::Parser parser;
 	parser.ParseGameLevel("../GameLevel.txt");
 
-	parser.modelPositions.size();
-
 	GWindow win;
 	GEventResponder msgs;
 	GVulkanSurface vulkan;
