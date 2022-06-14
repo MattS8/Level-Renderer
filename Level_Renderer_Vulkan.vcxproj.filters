@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\matth\OneDrive\Documents\Full Sail University\M17_GDB\Week 3\Assignments\LevelRenderer\Level_Renderer_Vulkan\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="LevelParser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\matth\OneDrive\Documents\Full Sail University\M17_GDB\Week 3\Assignments\LevelRenderer\Level_Renderer_Vulkan\renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="h2bParser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LevelParser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GraphicsObjects.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\matth\OneDrive\Documents\Full Sail University\M17_GDB\Week 3\Assignments\LevelRenderer\Level_Renderer_Vulkan\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{E51AE50E-20AF-3117-B6A1-A5448E3CFA12}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{DE991CD2-5210-3D5D-B49C-513DCCC7D1EC}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
