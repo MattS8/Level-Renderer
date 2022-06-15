@@ -32,5 +32,16 @@
     <Filter Include="Source Files">
       <UniqueIdentifier>{DE991CD2-5210-3D5D-B49C-513DCCC7D1EC}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shader Files">
+      <UniqueIdentifier>{9e21e27d-2dc8-48b2-b80f-bdb2d1c4d000}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\PixelShader.hlsl">
+      <Filter>Shader Files</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\VertexShader.hlsl">
+      <Filter>Shader Files</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

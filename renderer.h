@@ -8,8 +8,8 @@
 /**********************************/
 /*  Shader Loader (Shader2String) */
 /**********************************/
-const char* PIXEL_SHADER_PATH = "PixelShader.hlsl";
-const char* VERTEX_SHADER_PATH = "VertexShader.hlsl";
+const char* PIXEL_SHADER_PATH = "Shaders/PixelShader.hlsl";
+const char* VERTEX_SHADER_PATH = "Shaders/VertexShader.hlsl";
 std::string ShaderAsString(const char* shaderFilePath) {
 	std::string output;
 	unsigned int stringLength = 0;
