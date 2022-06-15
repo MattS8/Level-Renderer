@@ -5,6 +5,10 @@
 
 #pragma pack(push,1)
 namespace graphics {
+	// Constants
+#define REND_DEFAULT_CAMERA { { 0.75f, 0.25f, -1.5f, 1.0f }, { 0.15f, 0.75f, 0.0f, 1.0f }, G_DEGREE_TO_RADIAN(65), 0.1f, 100 }
+#define REND_DEFAULT_LIGHT { {-1.0f, -1.0f, 2.0f, 1.0f}, { 0.6f, 0.9f, 1.0f, 1.0f } }
+
 	struct VECTOR {
 		float x, y, z;
 	};
@@ -63,6 +67,19 @@ namespace graphics {
 			batches.clear();
 			meshes.clear();
 		}
+	};
+
+	struct LIGHT
+	{
+		GW::MATH::GVECTORF Direction;
+		GW::MATH::GVECTORF Color;
+	};
+	struct CAMERA
+	{
+		GW::MATH::GMATRIXF worldMatrix;
+		float FOV;
+		float nearPlane;
+		float farPlane;
 	};
 }
 

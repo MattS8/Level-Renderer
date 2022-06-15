@@ -7,6 +7,31 @@
 #include <vector>
 #include "../Gateware/Gateware/Gateware.h"
 
+/**
+ * Trim solution found from:
+ * https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring
+ */
+
+ // trim from start (in place)
+static inline void trimLeft(std::string& str) {
+	str.erase(str.begin(), std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+		return !std::isspace(ch);
+		}));
+}
+
+// trim from end (in place)
+static inline void trimRight(std::string& str) {
+	str.erase(std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
+		return !std::isspace(ch);
+		}).base(), str.end());
+}
+
+// trim from both ends (in place)
+static inline void trim(std::string& str) {
+	trimLeft(str);
+	trimRight(str);
+}
+
 namespace LevelParser
 {
 	const int ERR_OPENING_FILE = 1;
@@ -31,19 +56,25 @@ namespace LevelParser
 		int ErrFindingModelFile(std::string& filePath);
 
 		// Load Handlers
-		int LoadMesh(std::string& meshFileName);
-		int LoadCamera(const char* cameraFile);
+		int LoadMesh(std::string meshName);
+		int LoadCamera(std::string cameraName);
 		int LoadLight(const char* lightFile);
-		int ParseMatrix(std::string tag);
+		int ParseMatrix(GW::MATH::GMATRIXF& matrix);
 		int ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset);
+
+		// Name Parser
+		std::string GetMeshNameFromLine();
 
 	public:
 		std::unordered_map<std::string, graphics::MODEL> models;
-		std::unordered_map<std::string, std::vector<GW::MATH::GMATRIXF>*> modelPositions;
+		std::unordered_map<std::string, graphics::CAMERA> cameras;
+		std::unordered_map<std::string, graphics::LIGHT> lights;
 		unsigned int modelCount;
+		unsigned int cameraCount;
 		unsigned int lightCount;
 
 		int ParseGameLevel(const char* filePath);
+		std::vector<graphics::MODEL> ModelsToVector();
 		
 	};
 }

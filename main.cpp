@@ -21,11 +21,6 @@ using namespace GRAPHICS;
 // lets pop a window and use Vulkan to clear to a red screen
 int main()
 {
-	LevelParser::Parser parser;
-	parser.ParseGameLevel("../GameLevel.txt");
-
-	parser.models.size();
-
 	GWindow win;
 	GEventResponder msgs;
 	GVulkanSurface vulkan;
@@ -78,7 +73,10 @@ int main()
 			//	Raft_meshcount
 			//};
 
-			//Renderer renderer(win, vulkan, parser.models., 1);
+			LevelParser::Parser parser;
+			parser.ParseGameLevel("../GameLevel.txt");
+
+			Renderer renderer(win, vulkan, parser.ModelsToVector());
 			while (+win.ProcessWindowEvents())
 			{
 				if (+vulkan.StartFrame(2, clrAndDepth))

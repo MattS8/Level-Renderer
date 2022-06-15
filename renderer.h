@@ -271,19 +271,17 @@ private:
 	GlobalMatrices gMatrices;
 	Light gLight;
 
-	graphics::MODEL* gObjects;
-	const unsigned int numObjects;
+	std::vector<graphics::MODEL> gObjects;
 
 	// Shader Model Data sent to GPU
 	SHADER_MODEL_DATA gShaderModelData;
 public:
 
 	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk, 
-		graphics::MODEL* _objects,
-		const unsigned int _numObjects, 
+		std::vector<graphics::MODEL> _objects, 
 		Camera _camera = REND_DEFAULT_CAMERA,
 		Light _light = REND_DEFAULT_LIGHT) 
-			: win(_win), vlk(_vlk), gObjects(_objects), numObjects(_numObjects), gCamera(_camera), gLight(_light)
+			: win(_win), vlk(_vlk), gObjects(_objects), gCamera(_camera), gLight(_light)
 	{
 		unsigned int width, height;
 		win.GetClientWidth(width);
@@ -336,8 +334,8 @@ public:
 
 		
 		unsigned int totalNumVerts = 0;
-		vkObjects.resize(numObjects);
-		for (int i = 0; i < numObjects; i++)
+		vkObjects.resize(gObjects.size());
+		for (int i = 0; i < gObjects.size(); i++)
 		{
 			// Create Vertex Buffer
 			unsigned int numBytes = sizeof(graphics::VERTEX) * gObjects[i].vertexCount;
@@ -670,7 +668,7 @@ public:
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
 			0, 1, &descSets[currentImageIndex], 0, nullptr);
 
-		for (int i = 0; i < numObjects; i++)
+		for (int i = 0; i < gObjects.size(); i++)
 		{
 			graphics::MODEL obj = gObjects[i];
 			VkDeviceSize offsets[] = { 0 };

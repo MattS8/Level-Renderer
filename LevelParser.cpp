@@ -3,33 +3,21 @@
 #include <cctype>
 #include <locale>
 
-/**
- * Trim solution found from: 
- * https://stackoverflow.com/questions/216823/how-to-trim-a-stdstring 
- */
-
-// trim from start (in place)
-static inline void trimLeft(std::string& str) {
-	str.erase(str.begin(), std::find_if(str.begin(), str.end(), [](unsigned char ch) {
-		return !std::isspace(ch);
-		}));
-}
-
-// trim from end (in place)
-static inline void trimRight(std::string& str) {
-	str.erase(std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
-		return !std::isspace(ch);
-		}).base(), str.end());
-}
-
-// trim from both ends (in place)
-static inline void trim(std::string& str) {
-	trimLeft(str);
-	trimRight(str);
-}
-
 const char* LevelParser::modelAssetPath = "../Model Assets/H2B/";
 const char* LevelParser::moelAssetExt = ".h2b";
+
+std::vector<graphics::MODEL> LevelParser::Parser::ModelsToVector()
+{
+	std::vector<graphics::MODEL> modelsVector;
+	modelsVector.reserve(models.size());
+
+	for (auto itter = models.begin(); itter != models.end(); itter++)
+	{
+		modelsVector.push_back(itter->second);
+	}
+
+	return modelsVector;
+}
 
 int LevelParser::Parser::ParseGameLevel(const char* filePath)
 {
@@ -56,21 +44,20 @@ int LevelParser::Parser::ParseGameLevel(const char* filePath)
 		{
 			if (!std::getline(fileHandler, line2Parse))
 				return ErrMalformedFile();
-			if (LoadMesh(line2Parse) != LevelParser::OK)
-				return ErrMalformedFile();
-			if (ParseMatrix(line2Parse) != LevelParser::OK)
+
+			std::string meshName = GetMeshNameFromLine();
+
+			if (LoadMesh(meshName) != LevelParser::OK)
 				return ErrMalformedFile();
 		}
-		//// Handle Camera Object
-		//else if (std::strcmp(line2Parse.c_str(), "CAMERA") == 0)
-		//{
-		//	if (!std::getline(fileHandler, line2Parse))
-		//		return ErrMalformedFile();
-		//	if (LoadCamera(line2Parse.c_str()) != LevelParser::OK)
-		//		return ErrMalformedFile();
-		//	if (ParseMatrix(line2Parse) != LevelParser::OK)
-		//		return ErrMalformedFile();
-		//}
+		// Handle Camera Object
+		else if (std::strcmp(line2Parse.c_str(), "CAMERA") == 0)
+		{
+			if (!std::getline(fileHandler, line2Parse))
+				return ErrMalformedFile();
+			if (LoadCamera(line2Parse) != LevelParser::OK)
+				return ErrMalformedFile();
+		}
 		//// Handle Light Object
 		//else if (std::strcmp(line2Parse.c_str(), "LIGHT") == 0)
 		//{
@@ -112,10 +99,8 @@ int LevelParser::Parser::ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset)
 		: LevelParser::ERR_MALFORMED_FILE;
 }
 
-int LevelParser::Parser::ParseMatrix(std::string tag)
+int LevelParser::Parser::ParseMatrix(GW::MATH::GMATRIXF& matrix)
 {
-	GW::MATH::GMATRIXF matrix;
-
 	// Parse matrix line-by-line
 	int retVal;
 	for (int i = 0; i < 4; i++)
@@ -124,45 +109,94 @@ int LevelParser::Parser::ParseMatrix(std::string tag)
 			return retVal;
 	}
 
-	// Add matrix to list
-	auto positionsList = modelPositions.find(tag);
-	if (positionsList == modelPositions.end())
+	return LevelParser::OK;
+}
+
+std::string LevelParser::Parser::GetMeshNameFromLine()
+{
+	int dotPos = line2Parse.find('.');
+	
+	return dotPos != std::string::npos 
+		? line2Parse.substr(0, dotPos)
+		: std::string(line2Parse);
+}
+
+int LevelParser::Parser::LoadMesh(std::string meshName)
+{
+	if (models.find(meshName) == models.end())
 	{
-		std::vector<GW::MATH::GMATRIXF>* newPosList = new std::vector<GW::MATH::GMATRIXF>();
-		newPosList->push_back(matrix);
-		modelPositions[tag] = newPosList;
+		std::string fullPath = std::string(modelAssetPath)
+			+ meshName
+			+ moelAssetExt;
+		if (!h2bParser.Parse(fullPath.c_str()))
+			return ErrFindingModelFile(fullPath);
+
+		h2bParser.model.instanceCount = 1;
+		models[meshName] = h2bParser.model;
 	}
 	else
 	{
-		positionsList->second->push_back(matrix);
+		models[meshName].instanceCount += 1;
 	}
 
+	GW::MATH::GMATRIXF newMatrix;
+	int retVal = ParseMatrix(newMatrix);
+	if (retVal != LevelParser::OK)
+		return retVal;
+
+	// Add matrix to list
+	models[meshName].worldMatrices.push_back(newMatrix);
+
+	//graphics::MODEL* newModel = new graphics::MODEL();
+	//memcpy(newModel, &(h2bParser.model), sizeof(graphics::MODEL));
+	//newModel->instanceCount = 1;
+	//models[meshName] = newModel;
+
 	return LevelParser::OK;
 }
 
-int LevelParser::Parser::LoadMesh(std::string& meshName)
+int LevelParser::Parser::LoadCamera(std::string cameraName)
 {
-	int dotPos = meshName.find('.');
-	if (dotPos != std::string::npos)
-		meshName = meshName.substr(0, dotPos);
+	static const char* CameraFOVLine = "<FOV %f >";
+	static const char* CameraNearPlaneLine = "<Near %f >";
+	static const char* CameraFarPlaneLine = "<Far %f >";
 
-	auto modelItter = models.find(meshName);
-	if (modelItter != models.end())
-		return LevelParser::OK;
+	if (cameras.find(cameraName) != cameras.end())
+	{
+		std::cout << "WARNING: Already found camera with name '" << cameraName << "'. The only camera will be overwritten!\n";
+	}
 
-	std::string fullPath = std::string(modelAssetPath) 
-		+ meshName 
-		+ moelAssetExt;
-	if (!h2bParser.Parse(fullPath.c_str()))
-		return ErrFindingModelFile(fullPath);
+	graphics::CAMERA newCamera;
+	ParseMatrix(newCamera.worldMatrix);
 	
-	models[meshName] = h2bParser.model;
+	int numItemsScanned;
 
-	return LevelParser::OK;
-}
+	// Parse FOV
+	if (!std::getline(fileHandler, line2Parse))
+		return LevelParser::ERR_MALFORMED_FILE;
+	numItemsScanned = sscanf(line2Parse.c_str(), CameraFOVLine, &(newCamera.FOV));
 
-int LevelParser::Parser::LoadCamera(const char* cameraFile)
-{
+	if (numItemsScanned != 1)
+		return LevelParser::ERR_MALFORMED_FILE;
+
+	// Parse Near Plane
+	if (!std::getline(fileHandler, line2Parse))
+		return LevelParser::ERR_MALFORMED_FILE;
+	numItemsScanned = sscanf(line2Parse.c_str(), CameraNearPlaneLine, &(newCamera.nearPlane));
+
+	if (numItemsScanned != 1)
+		return LevelParser::ERR_MALFORMED_FILE;
+	
+	// Parse Far Plane 
+	if (!std::getline(fileHandler, line2Parse))
+		return LevelParser::ERR_MALFORMED_FILE;
+	numItemsScanned = sscanf(line2Parse.c_str(), CameraFarPlaneLine, &(newCamera.farPlane));
+
+	if (numItemsScanned != 1)
+		return LevelParser::ERR_MALFORMED_FILE;
+
+	cameras[cameraName] = newCamera;
+
 	return LevelParser::OK;
 }
 
@@ -195,9 +229,7 @@ int LevelParser::Parser::ErrOpeningFile()
 
 void LevelParser::Parser::Clear()
 {
-	for (auto it = modelPositions.begin(); it != modelPositions.end(); it++)
-		delete it->second;
-
-	modelPositions.clear();
 	models.clear();
+	cameras.clear();
+	lights.clear();
 }
