@@ -26,7 +26,7 @@ namespace LevelParser
 		void Clear();
 
 		// Error Functions
-		int ErrOpenigFile();
+		int ErrOpeningFile();
 		int ErrMalformedFile();
 		int ErrFindingModelFile(std::string& filePath);
 
@@ -40,10 +40,11 @@ namespace LevelParser
 	public:
 		std::unordered_map<std::string, graphics::MODEL> models;
 		std::unordered_map<std::string, std::vector<GW::MATH::GMATRIXF>*> modelPositions;
-		unsigned int numberOfModels;
-		unsigned int numberOfLights;
+		unsigned int modelCount;
+		unsigned int lightCount;
 
 		int ParseGameLevel(const char* filePath);
+		
 	};
 }
 

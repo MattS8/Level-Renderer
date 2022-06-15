@@ -1,6 +1,7 @@
 #ifndef _LEVELRENDERERGO_H_
 #define _LEVELRENDERERGO_H_
 #include <vector>
+#include "../Gateware/Gateware/Gateware.h"
 
 #pragma pack(push,1)
 namespace graphics {
@@ -46,11 +47,13 @@ namespace graphics {
 		unsigned indexCount;
 		unsigned materialCount;
 		unsigned meshCount;
+		unsigned instanceCount;
 		std::vector<graphics::VERTEX> vertices;
 		std::vector<unsigned> indices;
 		std::vector<graphics::MATERIAL> materials;
 		std::vector<graphics::BATCH> batches;
 		std::vector<graphics::MESH> meshes;
+		std::vector<GW::MATH::GMATRIXF> worldMatrices;
 
 		void clear()
 		{

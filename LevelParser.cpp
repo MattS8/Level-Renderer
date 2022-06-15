@@ -40,7 +40,7 @@ int LevelParser::Parser::ParseGameLevel(const char* filePath)
 	fileHandler.open(filePath, std::ifstream::in);
 
 	if (!fileHandler.is_open())
-		return ErrOpenigFile();
+		return ErrOpeningFile();
 
 	// Read Each Line
 	int handlerReturnVal;
@@ -82,6 +82,11 @@ int LevelParser::Parser::ParseGameLevel(const char* filePath)
 		//		return ErrMalformedFile();
 		//}
 	}
+
+	modelCount = models.size();
+	lightCount = 0;		// TODO: Change to proper size when implemented
+
+	return LevelParser::OK;
 }
 
 // Loaders
@@ -180,7 +185,7 @@ int LevelParser::Parser::ErrMalformedFile()
 	return LevelParser::ERR_MALFORMED_FILE;
 }
 
-int LevelParser::Parser::ErrOpenigFile()
+int LevelParser::Parser::ErrOpeningFile()
 {
 	std::cerr << "Failed to open file.\n";
 	return LevelParser::ERR_OPENING_FILE;
