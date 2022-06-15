@@ -3,7 +3,7 @@
 #define GATEWARE_ENABLE_SYSTEM // Graphics libs require system level libraries
 #define GATEWARE_ENABLE_GRAPHICS // Enables all Graphics Libraries
 #define GATEWARE_ENABLE_MATH
-// TODO: Part 3a
+
 // Ignore some GRAPHICS libraries we aren't going to use
 #define GATEWARE_DISABLE_GDIRECTX11SURFACE // we have another template for this
 #define GATEWARE_DISABLE_GDIRECTX12SURFACE // we have another template for this
@@ -12,8 +12,6 @@
 // With what we want & what we don't defined we can include the API
 #include "../Gateware/Gateware/Gateware.h"
 #include "renderer.h"
-#include "Assets/FSLogo.h"
-#include "Assets/Raft.h"
 #include "LevelParser.h"
 // open some namespaces to compact the code a bit
 using namespace GW;
@@ -26,13 +24,14 @@ int main()
 	LevelParser::Parser parser;
 	parser.ParseGameLevel("../GameLevel.txt");
 
+	parser.models.size();
+
 	GWindow win;
 	GEventResponder msgs;
 	GVulkanSurface vulkan;
 	if (+win.Create(0, 0, 800, 600, GWindowStyle::WINDOWEDBORDERED))
 	{
-		// TODO: Part 1a
-		win.SetWindowName("Matthew Steinhardt - Assignment 2 (Vulkan)");
+		win.SetWindowName("Matthew Steinhardt - Level Renderer (Vulkan)");
 		VkClearValue clrAndDepth[2];
 		clrAndDepth[0].color = { {0.25f, 0.06f, 0.09f, 1} };
 		clrAndDepth[1].depthStencil = { 1.0f, 0u };
@@ -55,36 +54,36 @@ int main()
 		if (+vulkan.Create(win, GW::GRAPHICS::DEPTH_BUFFER_SUPPORT))
 #endif
 		{
-			Renderer::ObjectData FSLogoObject = 
-			{
-				FSLogo_vertices,
-				FSLogo_vertexcount,
-				FSLogo_indices,
-				FSLogo_indexcount,
-				FSLogo_materials,
-				FSLogo_materialcount,
-				FSLogo_meshes,
-				FSLogo_meshcount
-			};
+			//Renderer::ObjectData FSLogoObject = 
+			//{
+			//	FSLogo_vertices,
+			//	FSLogo_vertexcount,
+			//	FSLogo_indices,
+			//	FSLogo_indexcount,
+			//	FSLogo_materials,
+			//	FSLogo_materialcount,
+			//	FSLogo_meshes,
+			//	FSLogo_meshcount
+			//};
 
-			Renderer::ObjectData RaftObject =
-			{
-				Raft_vertices,
-				Raft_vertexcount,
-				Raft_indices,
-				Raft_indexcount,
-				Raft_materials,
-				Raft_materialcount,
-				Raft_meshes,
-				Raft_meshcount
-			};
+			//Renderer::ObjectData RaftObject =
+			//{
+			//	Raft_vertices,
+			//	Raft_vertexcount,
+			//	Raft_indices,
+			//	Raft_indexcount,
+			//	Raft_materials,
+			//	Raft_materialcount,
+			//	Raft_meshes,
+			//	Raft_meshcount
+			//};
 
-			Renderer renderer(win, vulkan, &FSLogoObject, 1);
+			//Renderer renderer(win, vulkan, parser.models., 1);
 			while (+win.ProcessWindowEvents())
 			{
 				if (+vulkan.StartFrame(2, clrAndDepth))
 				{
-					renderer.Render();
+					//renderer.Render();
 					vulkan.EndFrame(true);
 				}
 			}

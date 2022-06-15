@@ -1,5 +1,6 @@
 #include "shaderc/shaderc.h" // needed for compiling shaders at runtime
 #include <cmath>
+#include "GraphicsObjects.h"
 #ifdef _WIN32 // must use MT platform DLL libraries on windows
 	#pragma comment(lib, "shaderc_combined.lib") 
 #endif
@@ -95,10 +96,9 @@ typedef struct _OBJ_MATERIAL_
 
 // Simple Vertex Shader
 const char* vertexShaderSource = R"(
-// TODO: 2i
+
 #pragma pack_matrix(row_major)
 // an ultra simple hlsl vertex shader
-// TODO: Part 2b
 #define MAX_INSTANCE_PER_DRAW 1024
 struct OBJ_ATTRIBUTES
 {
@@ -125,16 +125,14 @@ struct SHADER_MODEL_DATA
 	matrix matrices[MAX_INSTANCE_PER_DRAW];
 	OBJ_ATTRIBUTES materials[MAX_INSTANCE_PER_DRAW];
 };
-// TODO: Part 4g
-// TODO: Part 2i
+
 StructuredBuffer<SHADER_MODEL_DATA> SceneData;
-// TODO: Part 3e
+
 [[vk::push_constant]]
 cbuffer MESH_INDEX {
 	uint mesh_ID;
 };
-// TODO: Part 4a
-// TODO: Part 1f
+
 struct VSInput
 {
 	float3 Position : POSITION;
@@ -150,29 +148,19 @@ struct VS_OUTPUT
 	float3 uvw	: UVW;
 };
 
-// TODO: Part 4b
-VS_OUTPUT main(VSInput inputVertex) : SV_TARGET
-{
-    // TODO: Part 1h
-	
-	VS_OUTPUT vsOut = (VS_OUTPUT)0;
-	//vsOut.Position = float4(inputVertex.Position[0], inputVertex.Position[1] - 0.75f, inputVertex.Position[2] + 0.75f, 1);
 
-	// TODO: Part 2i
-	vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[mesh_ID]);
-	//vsOut.posH = mul(mul(vsOut.posW, SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
+VS_OUTPUT main(VSInput inputVertex, uint InstanceID : SV_InstanceID) : SV_TARGET
+{
+	VS_OUTPUT vsOut = (VS_OUTPUT)0;
+	vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[InstanceID]);
 	vsOut.posH = mul(mul(mul(float4(inputVertex.Position, 1), SceneData[0].matrices[mesh_ID]), SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
-	vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[mesh_ID]);
+	vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[InstanceID]);
 	vsOut.uvw = inputVertex.UVW;
 	return vsOut;
-	// TODO: Part 4e
-	// TODO: Part 4b
-	// TODO: Part 4e
 }
 )";
 // Simple Pixel Shader
 const char* pixelShaderSource = R"(
-// TODO: Part 2b
 #define MAX_INSTANCE_PER_DRAW 1024
 struct OBJ_ATTRIBUTES
 {
@@ -199,15 +187,12 @@ struct SHADER_MODEL_DATA
 	matrix matrices[MAX_INSTANCE_PER_DRAW];
 	OBJ_ATTRIBUTES materials[MAX_INSTANCE_PER_DRAW];
 };
-// TODO: Part 4g
-// TODO: Part 2i
-// TODO: Part 3e
+
 [[vk::push_constant]]
 cbuffer MESH_INDEX {
 	uint mesh_ID;
 };
 // an ultra simple hlsl pixel shader
-// TODO: Part 4b
 struct PS_INPUT
 {
 	float4 posH : SV_POSITION;
@@ -253,11 +238,6 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 		litColor.y *= fullAmount.y;
 		litColor.z *= fullAmount.z;
 
-	
-
-	// TODO: Part 3a
-	// TODO: Part 4c
-	// TODO: Part 4g (half-vector or reflect method your choice)
 	float3 worldPos = psInput.posW;
 	float3 viewDirection = normalize(SceneData[0].cameraPos - worldPos);
 	float3 halfVec = normalize(-normalize(SceneData[0].lightDirection) + viewDirection);
@@ -268,7 +248,7 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 	
 	float3 totalLight = litColor + reflectedLight + SceneData[0].materials[mesh_ID].Ke;
 
-	return float4(totalLight, 1); // TODO: Part 1a
+	return float4(totalLight, 1);
 }
 )";
 // Creation, Rendering & Cleanup
@@ -328,7 +308,7 @@ private:
 		GW::MATH::GMATRIXF viewMatrix, projectionMatrix;
 		// per sub-mesh transform and material data
 		GW::MATH::GMATRIXF matrices[MAX_SUBMESH_PER_DRAW]; // world space transforms
-		OBJ_ATTRIBUTES materials[MAX_SUBMESH_PER_DRAW]; // color & texture of surface
+		graphics::ATTRIBUTES materials[MAX_SUBMESH_PER_DRAW]; // color & texture of surface
 	};
 
 	// Constants
@@ -367,23 +347,20 @@ private:
 
 	// DescriptorSetAllocateInfo
 	VkDescriptorSetAllocateInfo descSetAllocateInfo;
-		// TODO: Part 4f
-		
 
 	Camera gCamera;
 	GlobalMatrices gMatrices;
 	Light gLight;
 
-	ObjectData* gObjects;
+	graphics::MODEL* gObjects;
 	const unsigned int numObjects;
 
 	// Shader Model Data sent to GPU
 	SHADER_MODEL_DATA gShaderModelData;
-	// TODO: Part 4g
 public:
 
 	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk, 
-		ObjectData* _objects, 
+		graphics::MODEL* _objects,
 		const unsigned int _numObjects, 
 		Camera _camera = REND_DEFAULT_CAMERA,
 		Light _light = REND_DEFAULT_LIGHT) 
@@ -431,8 +408,6 @@ public:
 			gShaderModelData.materials[0] = gObjects[0].materials[0].attrib;
 			gShaderModelData.materials[1] = gObjects[0].materials[1].attrib;
 		}
-		// TODO: Part 4g
-		// TODO: part 3b
 
 		/***************** GEOMETRY INTIALIZATION ******************/
 		// Grab the device & physical device so we can allocate some stuff
@@ -446,21 +421,20 @@ public:
 		for (int i = 0; i < numObjects; i++)
 		{
 			// Create Vertex Buffer
-			unsigned int numBytes = sizeof(OBJ_VERT) * gObjects[i].numVertices;
+			unsigned int numBytes = sizeof(OBJ_VERT) * gObjects[i].vertexCount;
 			GvkHelper::create_buffer(physicalDevice, device, numBytes,
 				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
 				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].vertexHandle), &(vkObjects[i].vertexData));
-			GvkHelper::write_to_buffer(device, vkObjects[i].vertexData, gObjects[i].vertices, numBytes);
+			GvkHelper::write_to_buffer(device, vkObjects[i].vertexData, &(gObjects[i].vertices.front()), numBytes);
 
 			// Create Index Buffer
-			numBytes = sizeof(unsigned int) * gObjects[i].numIndices;
+			numBytes = sizeof(unsigned int) * gObjects[i].indexCount;
 			GvkHelper::create_buffer(physicalDevice, device, numBytes,
 				VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
 				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].indexHandle), &(vkObjects[i].indexData));
-			GvkHelper::write_to_buffer(device, vkObjects[i].indexData, gObjects[i].indices, numBytes);
+			GvkHelper::write_to_buffer(device, vkObjects[i].indexData, &(gObjects[i].indices.front()), numBytes);
 		}
 
-		// TODO: Part 2d
 		unsigned int chainSwapCount;
 		vlk.GetSwapchainImageCount(chainSwapCount);
 		storageBuffers.resize(chainSwapCount);
@@ -478,7 +452,7 @@ public:
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
 		shaderc_compile_options_t options = shaderc_compile_options_initialize();
 		shaderc_compile_options_set_source_language(options, shaderc_source_language_hlsl);
-		shaderc_compile_options_set_invert_y(options, true); // TODO: Part 2i
+		shaderc_compile_options_set_invert_y(options, true);
 #ifndef NDEBUG
 		shaderc_compile_options_set_generate_debug_info(options);
 #endif
@@ -526,7 +500,6 @@ public:
 		assembly_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 		assembly_create_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 		assembly_create_info.primitiveRestartEnable = false;
-		// TODO: Part 1e
 		// Vertex Input State
 		VkVertexInputBindingDescription vertex_binding_description = {};
 		vertex_binding_description.binding = 0;
@@ -616,8 +589,7 @@ public:
 		dynamic_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 		dynamic_create_info.dynamicStateCount = 2;
 		dynamic_create_info.pDynamicStates = dynamic_state;
-		
-		// TODO: Part 2e
+
 		{
 			descLayoutBinding = {};
 			descLayoutBinding.binding = 0;
@@ -636,7 +608,6 @@ public:
 			vkCreateDescriptorSetLayout(device, &descLayoutCreateInfo, nullptr, &descLayout);
 		}
 
-		// TODO: Part 2f
 		{
 			descPoolSize = {};
 			descPoolSize.descriptorCount = chainSwapCount;
@@ -652,8 +623,7 @@ public:
 
 			vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descPool);
 		}
-			// TODO: Part 4f
-		// TODO: Part 2g
+
 		{
 			descSets.resize(chainSwapCount);
 			descSetAllocateInfo = {};
@@ -666,8 +636,7 @@ public:
 			for (int i = 0; i < chainSwapCount; i++)
 				vkAllocateDescriptorSets(device, &descSetAllocateInfo, &descSets[i]);
 		}
-			// TODO: Part 4f
-		// TODO: Part 2h
+
 		{
 			for (int i = 0; i < chainSwapCount; i++)
 			{
@@ -691,17 +660,15 @@ public:
 				vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
 			}
 		}
-			// TODO: Part 4f
 	
 		// Descriptor pipeline layout
 		VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
 		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		// TODO: Part 2e
 		{
 			pipeline_layout_create_info.setLayoutCount = 1;
 			pipeline_layout_create_info.pSetLayouts = &descLayout;
 		}
-		// TODO: Part 3c
+
 		VkPushConstantRange constantRange;
 		constantRange = {};
 		constantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -760,9 +727,6 @@ public:
 
 	void Render()
 	{
-		// TODO: Part 2a
-		// TODO: Part 4d
-		RotateLogo();
 		// grab the current Vulkan commandBuffer
 		unsigned int currentBuffer;
 		vlk.GetSwapchainCurrentImage(currentBuffer);
@@ -782,33 +746,32 @@ public:
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 		
 		// now we can draw
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &(vkObjects[0].vertexHandle), offsets);
-		// TODO: Part 1h
-		vkCmdBindIndexBuffer(commandBuffer, vkObjects[0].indexHandle, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
-		// TODO: Part 4d
-		// TODO: Part 2i
 		unsigned int currentImageIndex;
 		vlk.GetSwapchainCurrentImage(currentImageIndex);
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
 			0, 1, &descSets[currentImageIndex], 0, nullptr);
-		// TODO: Part 3b
+
 		for (int i = 0; i < numObjects; i++)
 		{
+			graphics::MODEL obj = gObjects[i];
+			VkDeviceSize offsets[] = { 0 };
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &(vkObjects[i].vertexHandle), offsets);
+			vkCmdBindIndexBuffer(commandBuffer, vkObjects[i].indexHandle, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
+			memcpy(gShaderModelData.materials, &(obj.materials.front()), sizeof(graphics::MATERIAL) * obj.materialCount);
+			memcpy(gShaderModelData.matrices, &(obj.worldMatrices.front()), sizeof(GW::MATH::GMATRIXF) * obj.instanceCount);
 			GvkHelper::write_to_buffer(device, storageData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
-			ObjectData obj = gObjects[i];
-			for (int j = 0; j < obj.numMeshes; j++)
+			
+			for (int j = 0; j < obj.meshCount; j++)
 			{
-
 				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 					0, sizeof(unsigned int), &j);
-				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].indexCount, 1, obj.meshes[j].indexOffset, 0, 1);
+				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].drawInfo.indexCount, obj.instanceCount, 
+					obj.meshes[j].drawInfo.indexOffset, 0, 0);
 			}
 		}
 		
 		//vkCmdDrawIndexed(commandBuffer, 5988)
-			// TODO: Part 3d
-		//vkCmdDraw(commandBuffer, 3885, 1, 0, 0); // TODO: Part 1d, 1h
+		//vkCmdDraw(commandBuffer, 3885, 1, 0, 0);
 		//vkCmdDrawIndexed(commandBuffer, 8532, 1, 0, 0, 1);
 		
 	}
@@ -826,25 +789,17 @@ private:
 			vkDestroyBuffer(device, vkObj.vertexHandle, nullptr);
 			vkFreeMemory(device, vkObj.vertexData, nullptr);
 		}
-
-		// TODO: Part 2d
-		{
-			for (VkBuffer& buffer : storageBuffers)
-				vkDestroyBuffer(device, buffer, nullptr);
-			for (VkDeviceMemory& data : storageData)
-				vkFreeMemory(device, data, nullptr);
-		}
+		
+		for (VkBuffer& buffer : storageBuffers)
+			vkDestroyBuffer(device, buffer, nullptr);
+		for (VkDeviceMemory& data : storageData)
+			vkFreeMemory(device, data, nullptr);
 
 		vkDestroyShaderModule(device, vertexShader, nullptr);
 		vkDestroyShaderModule(device, pixelShader, nullptr);
-		// TODO: Part 2e
-		{
-			vkDestroyDescriptorSetLayout(device, descLayout, nullptr);
-		}
-		// TODO: part 2f
-		{
-			vkDestroyDescriptorPool(device, descPool, nullptr);
-		}
+		vkDestroyDescriptorSetLayout(device, descLayout, nullptr);
+		vkDestroyDescriptorPool(device, descPool, nullptr);
+		
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyPipeline(device, pipeline, nullptr);
 	}
