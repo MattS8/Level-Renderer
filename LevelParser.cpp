@@ -163,7 +163,7 @@ int LevelParser::Parser::LoadCamera(std::string cameraName)
 
 	if (cameras.find(cameraName) != cameras.end())
 	{
-		std::cout << "WARNING: Already found camera with name '" << cameraName << "'. The only camera will be overwritten!\n";
+		std::cout << "Level Parser - WARNING: Already found camera with name '" << cameraName << "'. The only camera will be overwritten!\n";
 	}
 
 	graphics::CAMERA newCamera;
@@ -209,19 +209,19 @@ int LevelParser::Parser::LoadLight(const char* lightFile)
 
 int LevelParser::Parser::ErrFindingModelFile(std::string& filePath)
 {
-	std::cerr << "Could not open file: " << filePath << "\n";
+	std::cerr << "Level Parser - ERROR: Could not open file: " << filePath << "\n";
 	return LevelParser::ERR_OPENING_FILE;
 }
 
 int LevelParser::Parser::ErrMalformedFile()
 {
-	std::cerr << "GameLevel file was malformed.\n";
+	std::cerr << "Level Parser - ERROR: GameLevel file was malformed.\n";
 	return LevelParser::ERR_MALFORMED_FILE;
 }
 
 int LevelParser::Parser::ErrOpeningFile()
 {
-	std::cerr << "Failed to open file.\n";
+	std::cerr << "Level Parser - ERROR: Failed to open file.\n";
 	return LevelParser::ERR_OPENING_FILE;
 }
 
