@@ -8,8 +8,8 @@
 /**********************************/
 /*  Shader Loader (Shader2String) */
 /**********************************/
-const char* PIXEL_SHADER_PATH = "Shaders/PixelShader.hlsl";
-const char* VERTEX_SHADER_PATH = "Shaders/VertexShader.hlsl";
+const char* PIXEL_SHADER_PATH = "../Shaders/PixelShader.hlsl";
+const char* VERTEX_SHADER_PATH = "../Shaders/VertexShader.hlsl";
 std::string ShaderAsString(const char* shaderFilePath) {
 	std::string output;
 	unsigned int stringLength = 0;
@@ -24,165 +24,6 @@ std::string ShaderAsString(const char* shaderFilePath) {
 	return output;
 }
 
-// Simple Vertex Shader
-const char* vertexShaderSource = R"(
-
-#pragma pack_matrix(row_major)
-// an ultra simple hlsl vertex shader
-#define MAX_INSTANCE_PER_DRAW 1024
-struct OBJ_ATTRIBUTES
-{
-	float3	    Kd; // diffuse reflectivity
-	float	    d; // dissolve (transparency) 
-	float3	    Ks; // specular reflectivity
-	float       Ns; // specular exponent
-	float3	    Ka; // ambient reflectivity
-	float       sharpness; // local reflection map sharpness
-	float3	    Tf; // transmission filter
-	float       Ni; // optical density (index of refraction)
-	float3	    Ke; // emissive reflectivity
-	int		    illum; // illumination model
-};
-
-struct SHADER_MODEL_DATA
-{
-	float4 lightDirection;
-	float4 lightColor;
-	float4 ambientColor;
-	float4 cameraPos;
-	matrix viewMatrix;
-	matrix projectionMatrix;
-	matrix matrices[MAX_INSTANCE_PER_DRAW];
-	OBJ_ATTRIBUTES materials[MAX_INSTANCE_PER_DRAW];
-};
-
-StructuredBuffer<SHADER_MODEL_DATA> SceneData;
-
-[[vk::push_constant]]
-cbuffer MESH_INDEX {
-	uint material_offset;
-	uint matrix_offset;
-};
-
-struct VSInput
-{
-	float3 Position : POSITION;
-	float3 UVW : UVW;
-	float3 Normal : NORMAL;
-}; 
-
-struct VS_OUTPUT
-{
-	float4 posH : SV_POSITION;
-	float3 nrmW : NORMAL;
-	float3 posW : WORLD;
-	float3 uvw	: UVW;
-};
-
-
-VS_OUTPUT main(VSInput inputVertex, uint InstanceID : SV_InstanceID) : SV_TARGET
-{
-	VS_OUTPUT vsOut = (VS_OUTPUT)0;
-	vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[matrix_offset + InstanceID]);
-	vsOut.posH = mul(mul(mul(float4(inputVertex.Position, 1), SceneData[0].matrices[matrix_offset + InstanceID]), SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
-	vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[matrix_offset + InstanceID]);
-	vsOut.uvw = inputVertex.UVW;
-	return vsOut;
-}
-)";
-// Simple Pixel Shader
-const char* pixelShaderSource = R"(
-#define MAX_INSTANCE_PER_DRAW 1024
-struct OBJ_ATTRIBUTES
-{
-	float3	    Kd; // diffuse reflectivity
-	float	    d; // dissolve (transparency) 
-	float3	    Ks; // specular reflectivity
-	float       Ns; // specular exponent
-	float3	    Ka; // ambient reflectivity
-	float       sharpness; // local reflection map sharpness
-	float3	    Tf; // transmission filter
-	float       Ni; // optical density (index of refraction)
-	float3	    Ke; // emissive reflectivity
-	int		    illum; // illumination model
-};
-
-struct SHADER_MODEL_DATA
-{
-	float4 lightDirection;
-	float4 lightColor;
-	float4 ambientColor;
-	float4 cameraPos;
-	matrix viewMatrix;
-	matrix projectionMatrix;
-	matrix matrices[MAX_INSTANCE_PER_DRAW];
-	OBJ_ATTRIBUTES materials[MAX_INSTANCE_PER_DRAW];
-};
-
-[[vk::push_constant]]
-cbuffer MESH_INDEX {
-	uint material_offset;
-	uint matrix_offset;
-};
-// an ultra simple hlsl pixel shader
-struct PS_INPUT
-{
-	float4 posH : SV_POSITION;
-	float3 nrmW : NORMAL;
-	float3 posW : WORLD;
-	float3 uvw	: UVW;
-};
-
-StructuredBuffer<SHADER_MODEL_DATA> SceneData;
-
-float4 main(PS_INPUT psInput) : SV_TARGET 
-{	
-	//float lightRatio = saturate(dot(-normalize(SceneData[0].lightDirection), psInput.nrmW)));
-	//float3 lightColor;
-	//	lightColor[0] = SceneData[0].ambientColor[0] + lightRatio;
-	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
-	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
-	//float3 resultColor = mul(saturate(lightColor), SceneData[0].materials[material_offset].Kd);
-
-	
-	// Directional Lighting
-	float lightAmount = saturate(dot(-normalize(SceneData[0].lightDirection), normalize(psInput.nrmW)));
-	
-	// Ambient Lighting
-	//float fullAmount = lightAmount;
-	//	fullAmount += SceneData[0].ambientColor.x;
-	//	fullAmount += SceneData[0].ambientColor.y;
-	//	fullAmount += SceneData[0].ambientColor.z;
-	//	fullAmount += SceneData[0].ambientColor.w;
-
-	//float fullAmount = saturate(lightAmount + SceneData[0].ambientColor);
-
-	float3 fullAmount;
-		fullAmount.x = SceneData[0].ambientColor.x + lightAmount;
-		fullAmount.y = SceneData[0].ambientColor.y + lightAmount;
-		fullAmount.z = SceneData[0].ambientColor.z + lightAmount;
-	fullAmount = saturate(fullAmount);
-
-	//float3 litColor = mul(SceneData[0].materials[material_offset].Kd, fullAmount);
-	
-	float3 litColor = SceneData[0].materials[material_offset].Kd;
-		litColor.x *= fullAmount.x;
-		litColor.y *= fullAmount.y;
-		litColor.z *= fullAmount.z;
-
-	float3 worldPos = psInput.posW;
-	float3 viewDirection = normalize(SceneData[0].cameraPos - worldPos);
-	float3 halfVec = normalize(-normalize(SceneData[0].lightDirection) + viewDirection);
-	float intensity = max(pow(saturate(dot(normalize(psInput.nrmW), halfVec)), SceneData[0].materials[material_offset].Ns), 0);
-
-	float3 ambientColor = SceneData[0].ambientColor;
-	float3 reflectedLight = SceneData[0].lightColor * SceneData[0].materials[material_offset].Ks * intensity;
-	
-	float3 totalLight = litColor + reflectedLight + SceneData[0].materials[material_offset].Ke;
-
-	return float4(totalLight, 1);
-}
-)";
 // Creation, Rendering & Cleanup
 class Renderer
 {
@@ -396,19 +237,20 @@ public:
 		shaderc_compile_options_set_generate_debug_info(options);
 #endif
 		// Create Vertex Shader
-		const char* vertextShaderStr = ShaderAsString(VERTEX_SHADER_PATH).c_str();
+		std::string vertexShaderStr = ShaderAsString(VERTEX_SHADER_PATH);
 		shaderc_compilation_result_t result = shaderc_compile_into_spv( // compile
-			compiler, vertexShaderSource, strlen(vertexShaderSource),
+			compiler, vertexShaderStr.c_str(), vertexShaderStr.length(),
 			shaderc_vertex_shader, "main.vert", "main", options);
 		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) // errors?
 			std::cout << "Vertex Shader Errors: " << shaderc_result_get_error_message(result) << std::endl;
 		GvkHelper::create_shader_module(device, shaderc_result_get_length(result), // load into Vulkan
 			(char*)shaderc_result_get_bytes(result), &vertexShader);
 		shaderc_result_release(result); // done
+
 		// Create Pixel Shader
-		const char* pixelShaderStr = ShaderAsString(PIXEL_SHADER_PATH).c_str();
+		std::string pixelShaderStr = ShaderAsString(PIXEL_SHADER_PATH);
 		result = shaderc_compile_into_spv( // compile
-			compiler, pixelShaderSource, strlen(pixelShaderSource),
+			compiler, pixelShaderStr.c_str(), pixelShaderStr.length(),
 			shaderc_fragment_shader, "main.frag", "main", options);
 		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) // errors?
 			std::cout << "Pixel Shader Errors: " << shaderc_result_get_error_message(result) << std::endl;
