@@ -15,12 +15,31 @@ set_source_files_properties( MyVertexShader.hlsl PROPERTIES
 	# Tip: Swap "None" for "FXCompile" to have them actually be compiled by VS.(Great for D3D11/12)
 )
 
+set(
+	source_list
+	"main.cpp"
+	"LevelParser.cpp"
+	"renderer.h"
+	"GraphicsObjects.h"
+	"h2bParser.h"
+	"LevelParser.h"
+)
+
+set (
+	shader_list
+	"Shaders/VertexShader.hlsl"
+	"Shaders/PixelShader.hlsl"
+)
+
 if (WIN32)
+	set_property(SOURCE ${shader_list} PROPERTY VS_SETTINGS "ExcludedFromBuild=true")	
 	# shaderc_combined.lib in Vulkan requires this for debug & release (runtime shader compiling)
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MD")
-	add_executable (Level_Renderer_Vulkan main.cpp renderer.h)
+	add_executable (Level_Renderer_Vulkan ${source_list} ${shader_list})
 	target_include_directories(Level_Renderer_Vulkan PUBLIC $ENV{VULKAN_SDK}/Include/)
 	target_link_directories(Level_Renderer_Vulkan PUBLIC $ENV{VULKAN_SDK}/Lib/)
+
+	source_group("Shaders"		FILES file(${shader_list}))
 endif(WIN32)
 
 if(UNIX AND NOT APPLE)
@@ -36,7 +55,7 @@ if(UNIX AND NOT APPLE)
 	# the path is (properly)hardcoded because "${Vulkan_LIBRARY}" currently does not 
 	# return a proper path on MacOS (it has the .dynlib appended)
     link_libraries(/usr/lib/x86_64-linux-gnu/libshaderc_combined.a)
-    add_executable (Level_Renderer_Vulkan main.cpp renderer.h)
+    add_executable (Level_Renderer_Vulkan ${source_list} ${shader_list})
 endif(UNIX AND NOT APPLE)
 
 if(APPLE)

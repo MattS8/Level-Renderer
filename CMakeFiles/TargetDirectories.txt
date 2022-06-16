@@ -1,3 +1,0 @@
-C:/Users/matth/OneDrive/Documents/Full Sail University/M17_GDB/Week 3/Assignments/LevelRenderer/Level_Renderer_Vulkan/CMakeFiles/Level_Renderer_Vulkan.dir
-C:/Users/matth/OneDrive/Documents/Full Sail University/M17_GDB/Week 3/Assignments/LevelRenderer/Level_Renderer_Vulkan/CMakeFiles/ALL_BUILD.dir
-C:/Users/matth/OneDrive/Documents/Full Sail University/M17_GDB/Week 3/Assignments/LevelRenderer/Level_Renderer_Vulkan/CMakeFiles/ZERO_CHECK.dir

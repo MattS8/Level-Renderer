@@ -431,3 +431,4 @@ FodyWeavers.xsd
 *.sln.iml
 
 enc_temp_folder/*
+build/*
