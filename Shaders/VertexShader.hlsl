@@ -32,7 +32,8 @@ StructuredBuffer<SHADER_MODEL_DATA> SceneData;
 [[vk::push_constant]]
 cbuffer MESH_INDEX
 {
-    uint mesh_ID;
+    uint material_offset;
+    uint matrix_offset;
 };
 
 struct VSInput
@@ -54,9 +55,9 @@ struct VS_OUTPUT
 VS_OUTPUT main(VSInput inputVertex, uint InstanceID : SV_InstanceID) : SV_TARGET
 {
     VS_OUTPUT vsOut = (VS_OUTPUT) 0;
-    vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[InstanceID]);
-    vsOut.posH = mul(mul(mul(float4(inputVertex.Position, 1), SceneData[0].matrices[mesh_ID]), SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
-    vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[InstanceID]);
+    vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[matrix_offset + InstanceID]);
+    vsOut.posH = mul(mul(mul(float4(inputVertex.Position, 1), SceneData[0].matrices[matrix_offset + InstanceID]), SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
+    vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[matrix_offset + InstanceID]);
     vsOut.uvw = inputVertex.UVW;
     return vsOut;
 }

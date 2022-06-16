@@ -80,6 +80,7 @@ namespace graphics {
 		float FOV;
 		float nearPlane;
 		float farPlane;
+		float aspectRatio;
 	};
 }
 

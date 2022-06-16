@@ -28,7 +28,8 @@ struct SHADER_MODEL_DATA
 [[vk::push_constant]]
 cbuffer MESH_INDEX
 {
-    uint mesh_ID;
+    uint material_offset;
+    uint matrix_offset;
 };
 // an ultra simple hlsl pixel shader
 struct PS_INPUT
@@ -48,7 +49,7 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 	//	lightColor[0] = SceneData[0].ambientColor[0] + lightRatio;
 	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
 	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
-	//float3 resultColor = mul(saturate(lightColor), SceneData[0].materials[mesh_ID].Kd);
+	//float3 resultColor = mul(saturate(lightColor), SceneData[0].materials[material_offset].Kd);
 
 	
 	// Directional Lighting
@@ -69,9 +70,9 @@ float4 main(PS_INPUT psInput) : SV_TARGET
     fullAmount.z = SceneData[0].ambientColor.z + lightAmount;
     fullAmount = saturate(fullAmount);
 
-	//float3 litColor = mul(SceneData[0].materials[mesh_ID].Kd, fullAmount);
+	//float3 litColor = mul(SceneData[0].materials[material_offset].Kd, fullAmount);
 	
-    float3 litColor = SceneData[0].materials[mesh_ID].Kd;
+    float3 litColor = SceneData[0].materials[material_offset].Kd;
     litColor.x *= fullAmount.x;
     litColor.y *= fullAmount.y;
     litColor.z *= fullAmount.z;
@@ -79,12 +80,12 @@ float4 main(PS_INPUT psInput) : SV_TARGET
     float3 worldPos = psInput.posW;
     float3 viewDirection = normalize(SceneData[0].cameraPos - worldPos);
     float3 halfVec = normalize(-normalize(SceneData[0].lightDirection) + viewDirection);
-    float intensity = max(pow(saturate(dot(normalize(psInput.nrmW), halfVec)), SceneData[0].materials[mesh_ID].Ns), 0);
+    float intensity = max(pow(saturate(dot(normalize(psInput.nrmW), halfVec)), SceneData[0].materials[material_offset].Ns), 0);
 
     float3 ambientColor = SceneData[0].ambientColor;
-    float3 reflectedLight = SceneData[0].lightColor * SceneData[0].materials[mesh_ID].Ks * intensity;
+    float3 reflectedLight = SceneData[0].lightColor * SceneData[0].materials[material_offset].Ks * intensity;
 	
-    float3 totalLight = litColor + reflectedLight + SceneData[0].materials[mesh_ID].Ke;
+    float3 totalLight = litColor + reflectedLight + SceneData[0].materials[material_offset].Ke;
 
     return float4(totalLight, 1);
 }

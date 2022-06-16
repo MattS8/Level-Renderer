@@ -60,7 +60,8 @@ StructuredBuffer<SHADER_MODEL_DATA> SceneData;
 
 [[vk::push_constant]]
 cbuffer MESH_INDEX {
-	uint mesh_ID;
+	uint material_offset;
+	uint matrix_offset;
 };
 
 struct VSInput
@@ -82,9 +83,9 @@ struct VS_OUTPUT
 VS_OUTPUT main(VSInput inputVertex, uint InstanceID : SV_InstanceID) : SV_TARGET
 {
 	VS_OUTPUT vsOut = (VS_OUTPUT)0;
-	vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[InstanceID]);
-	vsOut.posH = mul(mul(mul(float4(inputVertex.Position, 1), SceneData[0].matrices[mesh_ID]), SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
-	vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[InstanceID]);
+	vsOut.posW = mul(inputVertex.Position, SceneData[0].matrices[matrix_offset + InstanceID]);
+	vsOut.posH = mul(mul(mul(float4(inputVertex.Position, 1), SceneData[0].matrices[matrix_offset + InstanceID]), SceneData[0].viewMatrix), SceneData[0].projectionMatrix);
+	vsOut.nrmW = mul(inputVertex.Normal, SceneData[0].matrices[matrix_offset + InstanceID]);
 	vsOut.uvw = inputVertex.UVW;
 	return vsOut;
 }
@@ -120,7 +121,8 @@ struct SHADER_MODEL_DATA
 
 [[vk::push_constant]]
 cbuffer MESH_INDEX {
-	uint mesh_ID;
+	uint material_offset;
+	uint matrix_offset;
 };
 // an ultra simple hlsl pixel shader
 struct PS_INPUT
@@ -140,7 +142,7 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 	//	lightColor[0] = SceneData[0].ambientColor[0] + lightRatio;
 	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
 	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
-	//float3 resultColor = mul(saturate(lightColor), SceneData[0].materials[mesh_ID].Kd);
+	//float3 resultColor = mul(saturate(lightColor), SceneData[0].materials[material_offset].Kd);
 
 	
 	// Directional Lighting
@@ -161,9 +163,9 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 		fullAmount.z = SceneData[0].ambientColor.z + lightAmount;
 	fullAmount = saturate(fullAmount);
 
-	//float3 litColor = mul(SceneData[0].materials[mesh_ID].Kd, fullAmount);
+	//float3 litColor = mul(SceneData[0].materials[material_offset].Kd, fullAmount);
 	
-	float3 litColor = SceneData[0].materials[mesh_ID].Kd;
+	float3 litColor = SceneData[0].materials[material_offset].Kd;
 		litColor.x *= fullAmount.x;
 		litColor.y *= fullAmount.y;
 		litColor.z *= fullAmount.z;
@@ -171,12 +173,12 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 	float3 worldPos = psInput.posW;
 	float3 viewDirection = normalize(SceneData[0].cameraPos - worldPos);
 	float3 halfVec = normalize(-normalize(SceneData[0].lightDirection) + viewDirection);
-	float intensity = max(pow(saturate(dot(normalize(psInput.nrmW), halfVec)), SceneData[0].materials[mesh_ID].Ns), 0);
+	float intensity = max(pow(saturate(dot(normalize(psInput.nrmW), halfVec)), SceneData[0].materials[material_offset].Ns), 0);
 
 	float3 ambientColor = SceneData[0].ambientColor;
-	float3 reflectedLight = SceneData[0].lightColor * SceneData[0].materials[mesh_ID].Ks * intensity;
+	float3 reflectedLight = SceneData[0].lightColor * SceneData[0].materials[material_offset].Ks * intensity;
 	
-	float3 totalLight = litColor + reflectedLight + SceneData[0].materials[mesh_ID].Ke;
+	float3 totalLight = litColor + reflectedLight + SceneData[0].materials[material_offset].Ke;
 
 	return float4(totalLight, 1);
 }
@@ -184,6 +186,13 @@ float4 main(PS_INPUT psInput) : SV_TARGET
 // Creation, Rendering & Cleanup
 class Renderer
 {
+private:
+	struct PushConstants
+	{
+		unsigned int material_offset;
+		unsigned int matrix_offset;
+	};
+
 	// Public Structures
 public:
 	struct Light
@@ -267,7 +276,7 @@ private:
 	// DescriptorSetAllocateInfo
 	VkDescriptorSetAllocateInfo descSetAllocateInfo;
 
-	Camera gCamera;
+	graphics::CAMERA gCamera;
 	GlobalMatrices gMatrices;
 	Light gLight;
 
@@ -275,32 +284,51 @@ private:
 
 	// Shader Model Data sent to GPU
 	SHADER_MODEL_DATA gShaderModelData;
+
+	// Input Controls
+	GW::INPUT::GInput gInputProxy;
+	GW::INPUT::GController gControllerProxy;
+	GW::INPUT::GBufferedInput gBufferedInputProxy;
 public:
+	struct InputModifiers
+	{
+		float CameraSpeed;
+		float LookSensitivity;
+	};
+	InputModifiers inputModifiers;
+	float maxCameraSpeed, minCameraSpeed;
+	float maxSensitivity, minSensitivity;
 
 	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk, 
 		std::vector<graphics::MODEL> _objects, 
-		Camera _camera = REND_DEFAULT_CAMERA,
+		graphics::CAMERA _camera,
 		Light _light = REND_DEFAULT_LIGHT) 
 			: win(_win), vlk(_vlk), gObjects(_objects), gCamera(_camera), gLight(_light)
 	{
 		unsigned int width, height;
 		win.GetClientWidth(width);
 		win.GetClientHeight(height);
+
+		// Setup input controllers
+		gInputProxy.Create(win);
+		gControllerProxy.Create();
+		gBufferedInputProxy.Create(win);
+
+		maxCameraSpeed = 3.0f;
+		minCameraSpeed = 0.1f;
+		maxSensitivity = G_PI * 1000 * 10;
+		minSensitivity = G_PI * 1000 * 0.5f;
+		inputModifiers.CameraSpeed = (maxCameraSpeed + minCameraSpeed) / 2;
+		inputModifiers.LookSensitivity = (maxSensitivity + minSensitivity) / 3;
+
 		// Set Up Matrices
 		{			
 			GW::MATH::GMatrix::IdentityF(gMatrices.world);
-			GW::MATH::GMatrix::IdentityF(gMatrices.view);
+			GW::MATH::GMatrix::InverseF(gCamera.worldMatrix, gMatrices.view);
 
-			float aspectRatio;
-			vlk.GetAspectRatio(aspectRatio);
-			GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, aspectRatio, gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
-
-			GW::MATH::GVECTORF upVector;
-			upVector.x = 0;
-			upVector.y = 1;
-			upVector.z = 0;
-			upVector.w = 1;
-			GW::MATH::GMatrix::LookAtLHF(gCamera.offset, gCamera.lookAt, upVector, gMatrices.view);
+			vlk.GetAspectRatio(gCamera.aspectRatio);
+			GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio, 
+				gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
 		}
 
 		// Set Shader Model Data
@@ -310,20 +338,14 @@ public:
 			gShaderModelData.viewMatrix = gMatrices.view;
 			gShaderModelData.projectionMatrix = gMatrices.projection;
 
-			// TODO set up on per-object basis
 			gShaderModelData.ambientColor.x = 0.25f;
 			gShaderModelData.ambientColor.y = 0.25f;
 			gShaderModelData.ambientColor.z = 0.35f;
 			gShaderModelData.ambientColor.w = 1;
-			gShaderModelData.cameraPos.x = gCamera.offset.x;
-			gShaderModelData.cameraPos.y = gCamera.offset.y;
-			gShaderModelData.cameraPos.z = gCamera.offset.z;
-			gShaderModelData.cameraPos.w = gCamera.offset.w;
-			//GW::MATH::GMatrix::InverseF(gMatrices.view, gShaderModelData.cameraPos);
-			gShaderModelData.matrices[0] = gMatrices.world;
-			gShaderModelData.matrices[1] = gMatrices.world;
-			gShaderModelData.materials[0] = gObjects[0].materials[0].attrib;
-			gShaderModelData.materials[1] = gObjects[0].materials[1].attrib;
+			gShaderModelData.cameraPos.x = gCamera.worldMatrix.row4.x;
+			gShaderModelData.cameraPos.y = gCamera.worldMatrix.row4.z;
+			gShaderModelData.cameraPos.z = gCamera.worldMatrix.row4.y;
+			gShaderModelData.cameraPos.w = gCamera.worldMatrix.row4.w;
 		}
 
 		/***************** GEOMETRY INTIALIZATION ******************/
@@ -361,8 +383,8 @@ public:
 			GvkHelper::create_buffer(physicalDevice, device, sizeof(SHADER_MODEL_DATA),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
 				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &storageBuffers[i], &storageData[i]);
-			GvkHelper::write_to_buffer(device, storageData[i], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 		}
+		WriteModelsToShaderData();
 
 		/***************** SHADER INTIALIZATION ******************/
 		// Initialize runtime shader compiler HLSL -> SPIRV
@@ -424,7 +446,7 @@ public:
 		vertex_binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 		VkVertexInputAttributeDescription vertex_attribute_description[3] = {
 			{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },
-			{ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(graphics::VERTEX, uvw)},
+			{ 1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(graphics::VERTEX, uvw) },
 			{ 2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(graphics::VERTEX, nrm) }
 			//uv, normal, etc....
 		};
@@ -590,7 +612,7 @@ public:
 		constantRange = {};
 		constantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		constantRange.offset = 0;
-		constantRange.size = sizeof(unsigned int);
+		constantRange.size = sizeof(PushConstants);
 		pipeline_layout_create_info.pushConstantRangeCount = 1;
 		pipeline_layout_create_info.pPushConstantRanges = &constantRange;
 		vkCreatePipelineLayout(device, &pipeline_layout_create_info, 
@@ -642,6 +664,138 @@ public:
 		timePoint = std::chrono::high_resolution_clock::now();
 	}
 
+	void UpdateCamera()
+	{
+		static std::chrono::steady_clock::time_point timePoint = std::chrono::high_resolution_clock::now();
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float timePassed = std::chrono::duration<float, std::milli>(currentTime - timePoint).count() / 1000; // Time in seconds																								 
+		// TODO: Part 4c
+		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
+		// TODO: Part 4d
+		float temp = 0;
+		GW::MATH::GVECTORF translationVector;
+		bool bControllerConnected;
+		gControllerProxy.IsConnected(0, bControllerConnected);
+
+		// Camera Speed
+		float scrollChange = 0.0f;
+
+
+
+		// Look Sensitivity
+
+
+		// y-axis Movement
+		float yChange = 0;
+		gInputProxy.GetState(G_KEY_SPACE, temp);
+		yChange += temp;
+		gInputProxy.GetState(G_KEY_LEFTSHIFT, temp);
+		yChange -= temp;
+		if (bControllerConnected)
+		{
+			gControllerProxy.GetState(0, G_RIGHT_TRIGGER_AXIS, temp);
+			yChange += temp;
+			gControllerProxy.GetState(0, G_LEFT_TRIGGER_AXIS, temp);
+			yChange -= temp;
+		}
+		yChange = yChange * inputModifiers.CameraSpeed * timePassed;
+		translationVector.x = translationVector.z = 0;
+		translationVector.w = 1;
+		translationVector.y = yChange;
+		GW::MATH::GMatrix::TranslateGlobalF(gMatrices.view, translationVector, gMatrices.view);
+
+		// x-axis Movement
+		float xChange = 0;
+		gInputProxy.GetState(G_KEY_D, temp);
+		xChange += temp;
+		gInputProxy.GetState(G_KEY_A, temp);
+		xChange -= temp;
+		if (bControllerConnected)
+		{
+			gControllerProxy.GetState(0, G_LX_AXIS, temp);
+			xChange += temp;
+		}
+		xChange = xChange * inputModifiers.CameraSpeed * timePassed;
+
+		// z-axis Movement
+		float zChange = 0;
+		gInputProxy.GetState(G_KEY_W, temp);
+		zChange += temp;
+		gInputProxy.GetState(G_KEY_S, temp);
+		zChange -= temp;
+		if (bControllerConnected)
+		{
+			gControllerProxy.GetState(0, G_LY_AXIS, temp);
+			zChange += temp;
+		}
+		zChange = zChange * inputModifiers.CameraSpeed * timePassed;
+
+		translationVector.x = xChange;
+		translationVector.z = zChange;
+		translationVector.y = 0;
+		translationVector.w = 1;
+		GW::MATH::GMatrix::TranslateLocalF(gMatrices.view, translationVector, gMatrices.view);
+
+
+		// TODO: Part 4e
+		float thumbSpeed = inputModifiers.LookSensitivity * timePassed;
+		float mouseDelta[2];
+		unsigned int windowHeight;
+		win.GetHeight(windowHeight);
+		bool bRMBClicked = false;
+		gInputProxy.GetState(G_BUTTON_RIGHT, temp);
+		bRMBClicked = temp > 0;
+		bool bUpdatePitchAndYaw = gInputProxy.GetMouseDelta(mouseDelta[0], mouseDelta[1]) != GW::GReturn::REDUNDANT;
+		if (bRMBClicked && bUpdatePitchAndYaw)
+		{
+			float totalPitch = gCamera.FOV * mouseDelta[1] / windowHeight;
+			if (bControllerConnected)
+			{
+				gControllerProxy.GetState(0, G_RY_AXIS, temp);
+				totalPitch += temp;
+			}
+			totalPitch *= thumbSpeed;
+
+			GW::MATH::GMATRIXF pitchMatrix;
+			GW::MATH::GMatrix::IdentityF(pitchMatrix);
+			GW::MATH::GMatrix::RotateXGlobalF(pitchMatrix, totalPitch, pitchMatrix);
+			GW::MATH::GMatrix::MultiplyMatrixF(pitchMatrix, gMatrices.view, gMatrices.view);
+		}
+
+		unsigned int windowWidth;
+		win.GetWidth(windowWidth);
+
+		if (bRMBClicked && bUpdatePitchAndYaw)
+		{
+			float totalYaw = gCamera.FOV * gCamera.aspectRatio * mouseDelta[0] / windowWidth;
+			if (bControllerConnected)
+			{
+				gControllerProxy.GetState(0, G_RX_AXIS, temp);
+				totalYaw += temp;
+			}
+			totalYaw *= thumbSpeed;
+
+			GW::MATH::GMATRIXF yawMatrix;
+			GW::MATH::GMatrix::IdentityF(yawMatrix);
+			GW::MATH::GMatrix::RotateYLocalF(yawMatrix, totalYaw, yawMatrix);
+			GW::MATH::GVECTORF originalPos;
+			originalPos.x = gMatrices.view.row4.x;
+			originalPos.y = gMatrices.view.row4.y;
+			originalPos.z = gMatrices.view.row4.z;
+			originalPos.w = gMatrices.view.row4.w;
+			GW::MATH::GMatrix::MultiplyMatrixF(gMatrices.view, yawMatrix, gMatrices.view);
+			gMatrices.view.row4.x = originalPos.x;
+			gMatrices.view.row4.y = originalPos.y;
+			gMatrices.view.row4.z = originalPos.z;
+			gMatrices.view.row4.w = originalPos.w;
+		}
+
+		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
+		gShaderModelData.viewMatrix = gMatrices.view;
+
+		timePoint = std::chrono::high_resolution_clock::now();
+	}
+
 	void Render()
 	{
 		// grab the current Vulkan commandBuffer
@@ -661,39 +815,65 @@ public:
 		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+		// Update Camera
+		vlk.GetAspectRatio(gCamera.aspectRatio);
+		GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
+			gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
+		gShaderModelData.projectionMatrix = gMatrices.projection;
 		
 		// now we can draw
 		unsigned int currentImageIndex;
 		vlk.GetSwapchainCurrentImage(currentImageIndex);
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
 			0, 1, &descSets[currentImageIndex], 0, nullptr);
+		GvkHelper::write_to_buffer(device, storageData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 
+
+		VkDeviceSize offsets[] = { 0 };
+		PushConstants pushConstants = { 0, 0 };
+		unsigned int materialCount = 0;
 		for (int i = 0; i < gObjects.size(); i++)
 		{
 			graphics::MODEL obj = gObjects[i];
-			VkDeviceSize offsets[] = { 0 };
 			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &(vkObjects[i].vertexHandle), offsets);
 			vkCmdBindIndexBuffer(commandBuffer, vkObjects[i].indexHandle, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
-			memcpy(gShaderModelData.materials, &(obj.materials.front()), sizeof(graphics::MATERIAL) * obj.materialCount);
-			memcpy(gShaderModelData.matrices, &(obj.worldMatrices.front()), sizeof(GW::MATH::GMATRIXF) * obj.instanceCount);
-			GvkHelper::write_to_buffer(device, storageData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 			
 			for (int j = 0; j < obj.meshCount; j++)
 			{
+				pushConstants.material_offset += 1;
 				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-					0, sizeof(unsigned int), &j);
+					0, sizeof(PushConstants), &pushConstants);
 				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].drawInfo.indexCount, obj.instanceCount, 
 					obj.meshes[j].drawInfo.indexOffset, 0, 0);
 			}
+
+			materialCount += gObjects[i].materialCount;
+			pushConstants.matrix_offset += obj.instanceCount;
 		}
-		
-		//vkCmdDrawIndexed(commandBuffer, 5988)
-		//vkCmdDraw(commandBuffer, 3885, 1, 0, 0);
-		//vkCmdDrawIndexed(commandBuffer, 8532, 1, 0, 0, 1);
-		
 	}
 	
 private:
+	void WriteModelsToShaderData()
+	{
+		unsigned int matrixOffset = 0;
+		unsigned int materialOffset = 0;
+		for (int i = 0; i < gObjects.size(); i++)
+		{
+			graphics::MODEL obj = gObjects[i];
+
+			// Copy matrices
+			memcpy(&(gShaderModelData.matrices[matrixOffset]), &(obj.worldMatrices[0]), sizeof(GW::MATH::GMATRIXF) * obj.instanceCount);
+			matrixOffset += obj.instanceCount;
+
+			// Copy materials
+			memcpy(&(gShaderModelData.materials[materialOffset]), &(obj.materials[0]), sizeof(graphics::MATERIAL) * obj.materialCount);
+			materialOffset += obj.materialCount;
+		}
+
+		//GvkHelper::write_to_buffer(device, storageData[index], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
+	}
+
 	void CleanUp()
 	{
 		// wait till everything has completed
