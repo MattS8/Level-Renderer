@@ -75,6 +75,7 @@ namespace LevelParser
 
 		int ParseGameLevel(const char* filePath);
 		std::vector<graphics::MODEL> ModelsToVector();
+		std::vector<graphics::CAMERA> CamerasToVector();
 		
 	};
 }

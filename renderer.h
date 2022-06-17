@@ -80,8 +80,9 @@ private:
 		graphics::ATTRIBUTES materials[MAX_SUBMESH_PER_DRAW]; // color & texture of surface
 	};
 
-	// Constants
-	#define REND_DEFAULT_CAMERA { { 0.75f, 0.25f, -1.5f, 1.0f }, { 0.15f, 0.75f, 0.0f, 1.0f }, G_DEGREE_TO_RADIAN(65), 0.1f, 100 }
+	// Defaults
+	graphics::CAMERA DefaultCamera;
+	//#define REND_DEFAULT_CAMERA { { 0.75f, 0.25f, -1.5f, 1.0f }, { 0.15f, 0.75f, 0.0f, 1.0f }, G_DEGREE_TO_RADIAN(65), 0.1f, 100 }
 	#define REND_DEFAULT_LIGHT { {-1.0f, -1.0f, 2.0f, 1.0f}, { 0.6f, 0.9f, 1.0f, 1.0f } }
 
 	// proxy handles
@@ -117,6 +118,7 @@ private:
 	// DescriptorSetAllocateInfo
 	VkDescriptorSetAllocateInfo descSetAllocateInfo;
 
+	std::vector<graphics::CAMERA> gCameras;
 	graphics::CAMERA gCamera;
 	GlobalMatrices gMatrices;
 	Light gLight;
@@ -142,9 +144,9 @@ public:
 
 	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk, 
 		std::vector<graphics::MODEL> _objects, 
-		graphics::CAMERA _camera,
+		std::vector<graphics::CAMERA> _cameras,
 		Light _light = REND_DEFAULT_LIGHT) 
-			: win(_win), vlk(_vlk), gObjects(_objects), gCamera(_camera), gLight(_light)
+			: win(_win), vlk(_vlk), gObjects(_objects), gCameras(_cameras), gLight(_light)
 	{
 		unsigned int width, height;
 		win.GetClientWidth(width);
@@ -161,6 +163,14 @@ public:
 		minSensitivity = G_PI * 1000 * 0.5f;
 		inputModifiers.CameraSpeed = (maxCameraSpeed + minCameraSpeed) / 2;
 		inputModifiers.LookSensitivity = (maxSensitivity + minSensitivity) / 3;
+
+		// Set up main camera
+		GW::MATH::GMatrix::IdentityF(DefaultCamera.worldMatrix);
+		DefaultCamera.farPlane = 1000.0f;
+		DefaultCamera.nearPlane = 0.1f;
+		DefaultCamera.FOV = G_DEGREE_TO_RADIAN(90);
+
+		gCamera = gCameras.size() == 0 ? DefaultCamera : gCameras[0];
 
 		// Set Up Matrices
 		{			

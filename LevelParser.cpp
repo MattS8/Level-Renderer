@@ -19,6 +19,19 @@ std::vector<graphics::MODEL> LevelParser::Parser::ModelsToVector()
 	return modelsVector;
 }
 
+std::vector<graphics::CAMERA> LevelParser::Parser::CamerasToVector()
+{
+	std::vector<graphics::CAMERA> camerasVector;
+	camerasVector.reserve(cameras.size());
+
+	for (auto itter = cameras.begin(); itter != cameras.end(); itter++)
+	{
+		camerasVector.push_back(itter->second);
+	}
+
+	return camerasVector;
+}
+
 int LevelParser::Parser::ParseGameLevel(const char* filePath)
 {
 	// Clear Old Data

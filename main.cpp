@@ -55,7 +55,10 @@ int main()
 			LevelParser::Parser parser;
 			parser.ParseGameLevel("../GameLevel.txt");
 
-			Renderer renderer(win, vulkan, parser.ModelsToVector(), parser.cameras.begin()->second);
+			auto models = parser.ModelsToVector();
+			auto cameras = parser.CamerasToVector();
+
+			Renderer renderer(win, vulkan, models, cameras);
 			
 			//OpenGameLevel();
 			while (+win.ProcessWindowEvents())
