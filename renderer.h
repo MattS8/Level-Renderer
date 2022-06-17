@@ -693,11 +693,11 @@ public:
 			
 			for (int j = 0; j < obj.meshCount; j++)
 			{
-				pushConstants.material_offset += 1;
 				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 					0, sizeof(PushConstants), &pushConstants);
 				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].drawInfo.indexCount, obj.instanceCount, 
 					obj.meshes[j].drawInfo.indexOffset, 0, 0);
+				pushConstants.material_offset += 1;
 			}
 
 			materialCount += gObjects[i].materialCount;
@@ -719,7 +719,10 @@ private:
 			matrixOffset += obj.instanceCount;
 
 			// Copy materials
-			memcpy(&(gShaderModelData.materials[materialOffset]), &(obj.materials[0]), sizeof(graphics::MATERIAL) * obj.materialCount);
+			for (int j = 0; j < obj.materialCount; j++)
+			{
+				memcpy(&(gShaderModelData.materials[materialOffset + j]), &(obj.materials[j].attrib), sizeof(graphics::ATTRIBUTES));
+			}
 			materialOffset += obj.materialCount;
 		}
 
