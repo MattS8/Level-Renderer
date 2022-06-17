@@ -33,7 +33,7 @@ static inline void trim(std::string& str) {
 	trimRight(str);
 }
 
-namespace LevelParser
+namespace LevelSelector
 {
 	const int ERR_OPENING_FILE = 1;
 	const int ERR_MALFORMED_FILE = 2;

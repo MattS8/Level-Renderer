@@ -18,11 +18,11 @@ set_source_files_properties( MyVertexShader.hlsl PROPERTIES
 set(
 	source_list
 	"main.cpp"
-	"LevelParser.cpp"
+	"LevelSelector.cpp"
 	"renderer.h"
 	"GraphicsObjects.h"
 	"h2bParser.h"
-	"LevelParser.h"
+	"LevelSelector.h"
 )
 
 set (

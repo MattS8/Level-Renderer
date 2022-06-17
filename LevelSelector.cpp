@@ -5,7 +5,7 @@
 #include <windows.h>
 #include <Commdlg.h>
 
-bool LevelParser::Selector::SelectNewLevel(bool showPrompt = false)
+bool LevelSelector::Selector::SelectNewLevel(bool showPrompt = false)
 {
 
 	if (showPrompt)
@@ -43,10 +43,10 @@ bool LevelParser::Selector::SelectNewLevel(bool showPrompt = false)
 
 
 
-const char* LevelParser::modelAssetPath = "../Model Assets/H2B/";
-const char* LevelParser::moelAssetExt = ".h2b";
+const char* LevelSelector::modelAssetPath = "../Model Assets/H2B/";
+const char* LevelSelector::moelAssetExt = ".h2b";
 
-std::vector<graphics::MODEL> LevelParser::Parser::ModelsToVector()
+std::vector<graphics::MODEL> LevelSelector::Parser::ModelsToVector()
 {
 	std::vector<graphics::MODEL> modelsVector;
 	modelsVector.reserve(models.size());
@@ -59,7 +59,7 @@ std::vector<graphics::MODEL> LevelParser::Parser::ModelsToVector()
 	return modelsVector;
 }
 
-std::vector<graphics::CAMERA> LevelParser::Parser::CamerasToVector()
+std::vector<graphics::CAMERA> LevelSelector::Parser::CamerasToVector()
 {
 	std::vector<graphics::CAMERA> camerasVector;
 	camerasVector.reserve(cameras.size());
@@ -72,10 +72,10 @@ std::vector<graphics::CAMERA> LevelParser::Parser::CamerasToVector()
 	return camerasVector;
 }
 
-int LevelParser::Parser::ParseGameLevel(std::string& filePath)
+int LevelSelector::Parser::ParseGameLevel(std::string& filePath)
 {
 	// Clear Old Data
-	LevelParser::Parser::Clear();
+	LevelSelector::Parser::Clear();
 
 	// Open File
 	fileHandler.open(filePath.c_str(), std::ifstream::in);
@@ -100,7 +100,7 @@ int LevelParser::Parser::ParseGameLevel(std::string& filePath)
 
 			std::string meshName = GetMeshNameFromLine();
 
-			if (LoadMesh(meshName) != LevelParser::OK)
+			if (LoadMesh(meshName) != LevelSelector::OK)
 				return ErrMalformedFile();
 		}
 		// Handle Camera Object
@@ -108,7 +108,7 @@ int LevelParser::Parser::ParseGameLevel(std::string& filePath)
 		{
 			if (!std::getline(fileHandler, line2Parse))
 				return ErrMalformedFile();
-			if (LoadCamera(line2Parse) != LevelParser::OK)
+			if (LoadCamera(line2Parse) != LevelSelector::OK)
 				return ErrMalformedFile();
 		}
 		//// Handle Light Object
@@ -116,9 +116,9 @@ int LevelParser::Parser::ParseGameLevel(std::string& filePath)
 		//{
 		//	if (!std::getline(fileHandler, line2Parse))
 		//		return ErrMalformedFile();
-		//	if (LoadLight(line2Parse.c_str()) != LevelParser::OK)
+		//	if (LoadLight(line2Parse.c_str()) != LevelSelector::OK)
 		//		return ErrMalformedFile();
-		//	if (ParseMatrix(line2Parse) != LevelParser::OK)
+		//	if (ParseMatrix(line2Parse) != LevelSelector::OK)
 		//		return ErrMalformedFile();
 		//}
 	}
@@ -129,19 +129,19 @@ int LevelParser::Parser::ParseGameLevel(std::string& filePath)
 	
 	fileHandler.close();
 
-	return LevelParser::OK;
+	return LevelSelector::OK;
 }
 
 // Loaders
 
-int LevelParser::Parser::ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset)
+int LevelSelector::Parser::ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset)
 {
 	static const char* matrixFirstLine = " <Matrix 4x4 (%f, %f, %f, %f";
 	static const char* matrixOtherLine = "            (%f, %f, %f, %f";
 
 	int numItemsScanned;
 	if (!std::getline(fileHandler, line2Parse))
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 
 	numItemsScanned = std::sscanf(line2Parse.c_str(),
 		offset == 0 ? matrixFirstLine : matrixOtherLine,
@@ -151,24 +151,24 @@ int LevelParser::Parser::ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset)
 		&matrix.data[(offset * 4) + 3]);
 
 	return numItemsScanned == 4 
-		? LevelParser::OK 
-		: LevelParser::ERR_MALFORMED_FILE;
+		? LevelSelector::OK 
+		: LevelSelector::ERR_MALFORMED_FILE;
 }
 
-int LevelParser::Parser::ParseMatrix(GW::MATH::GMATRIXF& matrix)
+int LevelSelector::Parser::ParseMatrix(GW::MATH::GMATRIXF& matrix)
 {
 	// Parse matrix line-by-line
 	int retVal;
 	for (int i = 0; i < 4; i++)
 	{
-		if (retVal = ParseMatrixLine(matrix, i) != LevelParser::OK)
+		if (retVal = ParseMatrixLine(matrix, i) != LevelSelector::OK)
 			return retVal;
 	}
 
-	return LevelParser::OK;
+	return LevelSelector::OK;
 }
 
-std::string LevelParser::Parser::GetMeshNameFromLine()
+std::string LevelSelector::Parser::GetMeshNameFromLine()
 {
 	int dotPos = line2Parse.find('.');
 	
@@ -177,7 +177,7 @@ std::string LevelParser::Parser::GetMeshNameFromLine()
 		: std::string(line2Parse);
 }
 
-int LevelParser::Parser::LoadMesh(std::string meshName)
+int LevelSelector::Parser::LoadMesh(std::string meshName)
 {
 	if (models.find(meshName) == models.end())
 	{
@@ -199,16 +199,16 @@ int LevelParser::Parser::LoadMesh(std::string meshName)
 
 	GW::MATH::GMATRIXF newMatrix;
 	int retVal = ParseMatrix(newMatrix);
-	if (retVal != LevelParser::OK)
+	if (retVal != LevelSelector::OK)
 		return retVal;
 
 	// Add matrix to list
 	models[meshName].worldMatrices.push_back(newMatrix);
 
-	return LevelParser::OK;
+	return LevelSelector::OK;
 }
 
-int LevelParser::Parser::LoadCamera(std::string cameraName)
+int LevelSelector::Parser::LoadCamera(std::string cameraName)
 {
 	static const char* CameraFOVLine = "<FOV %f >";
 	static const char* CameraNearPlaneLine = "<Near %f >";
@@ -226,61 +226,61 @@ int LevelParser::Parser::LoadCamera(std::string cameraName)
 
 	// Parse FOV
 	if (!std::getline(fileHandler, line2Parse))
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 	numItemsScanned = sscanf(line2Parse.c_str(), CameraFOVLine, &(newCamera.FOV));
 
 	if (numItemsScanned != 1)
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 
 	// Parse Near Plane
 	if (!std::getline(fileHandler, line2Parse))
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 	numItemsScanned = sscanf(line2Parse.c_str(), CameraNearPlaneLine, &(newCamera.nearPlane));
 
 	if (numItemsScanned != 1)
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 	
 	// Parse Far Plane 
 	if (!std::getline(fileHandler, line2Parse))
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 	numItemsScanned = sscanf(line2Parse.c_str(), CameraFarPlaneLine, &(newCamera.farPlane));
 
 	if (numItemsScanned != 1)
-		return LevelParser::ERR_MALFORMED_FILE;
+		return LevelSelector::ERR_MALFORMED_FILE;
 
 	cameras[cameraName] = newCamera;
 
-	return LevelParser::OK;
+	return LevelSelector::OK;
 }
 
-int LevelParser::Parser::LoadLight(const char* lightFile)
+int LevelSelector::Parser::LoadLight(const char* lightFile)
 {
-	return LevelParser::OK;
+	return LevelSelector::OK;
 }
 
 // Error Functions
 
-int LevelParser::Parser::ErrFindingModelFile(std::string& filePath)
+int LevelSelector::Parser::ErrFindingModelFile(std::string& filePath)
 {
 	std::cerr << "Level Parser - ERROR: Could not open file: " << filePath << "\n";
-	return LevelParser::ERR_OPENING_FILE;
+	return LevelSelector::ERR_OPENING_FILE;
 }
 
-int LevelParser::Parser::ErrMalformedFile()
+int LevelSelector::Parser::ErrMalformedFile()
 {
 	std::cerr << "Level Parser - ERROR: GameLevel file was malformed.\n";
-	return LevelParser::ERR_MALFORMED_FILE;
+	return LevelSelector::ERR_MALFORMED_FILE;
 }
 
-int LevelParser::Parser::ErrOpeningFile()
+int LevelSelector::Parser::ErrOpeningFile()
 {
 	std::cerr << "Level Parser - ERROR: Failed to open file.\n";
-	return LevelParser::ERR_OPENING_FILE;
+	return LevelSelector::ERR_OPENING_FILE;
 }
 
 // Manager Functions
 
-void LevelParser::Parser::Clear()
+void LevelSelector::Parser::Clear()
 {
 	models.clear();
 	cameras.clear();
