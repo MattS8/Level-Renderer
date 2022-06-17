@@ -47,6 +47,7 @@ namespace graphics {
 	};
 
 	struct MODEL {
+		std::string modelName;
 		unsigned vertexCount;
 		unsigned indexCount;
 		unsigned materialCount;

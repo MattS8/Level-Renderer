@@ -132,6 +132,8 @@ int LevelParser::Parser::LoadMesh(std::string meshName)
 			return ErrFindingModelFile(fullPath);
 
 		h2bParser.model.instanceCount = 1;
+		
+		h2bParser.model.modelName = meshName;
 		models[meshName] = h2bParser.model;
 	}
 	else
@@ -146,11 +148,6 @@ int LevelParser::Parser::LoadMesh(std::string meshName)
 
 	// Add matrix to list
 	models[meshName].worldMatrices.push_back(newMatrix);
-
-	//graphics::MODEL* newModel = new graphics::MODEL();
-	//memcpy(newModel, &(h2bParser.model), sizeof(graphics::MODEL));
-	//newModel->instanceCount = 1;
-	//models[meshName] = newModel;
 
 	return LevelParser::OK;
 }
