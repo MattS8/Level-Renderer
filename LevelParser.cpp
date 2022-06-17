@@ -2,6 +2,46 @@
 #include <algorithm> 
 #include <cctype>
 #include <locale>
+#include <windows.h>
+#include <Commdlg.h>
+
+bool LevelParser::Selector::SelectNewLevel(bool showPrompt = false)
+{
+
+	if (showPrompt)
+		MessageBox(NULL, L"Levels can be loaded by pressing the 'L' key. \n\nAccepted files can be in either .txt or .lvl format. \n\nFor more information about my custom .lvl format, see the documentation!",
+			L"Level Selection",
+			MB_OK);
+
+	OPENFILENAME ofn;
+	wchar_t szFile[MAX_PATH];
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = NULL;
+	ofn.lpstrFile = szFile;
+	ofn.lpstrFile[0] = '\0';
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.lpstrFilter = L"All\0*.txt\0*.lvl\0";
+	ofn.nFilterIndex = 1;
+	ofn.lpstrFileTitle = NULL;
+	ofn.nMaxFileTitle = 0;
+	ofn.lpstrInitialDir = NULL;
+	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+	GetOpenFileName(&ofn);
+
+	std::wstring ws(szFile);
+	std::string fileStr = std::string(ws.begin(), ws.end());
+
+	bool newFileSelected = fileStr.compare("") != 0;
+
+	if (newFileSelected)
+		selectedFile = fileStr;
+
+	return newFileSelected;
+}
+
+
 
 const char* LevelParser::modelAssetPath = "../Model Assets/H2B/";
 const char* LevelParser::moelAssetExt = ".h2b";
@@ -32,13 +72,13 @@ std::vector<graphics::CAMERA> LevelParser::Parser::CamerasToVector()
 	return camerasVector;
 }
 
-int LevelParser::Parser::ParseGameLevel(const char* filePath)
+int LevelParser::Parser::ParseGameLevel(std::string& filePath)
 {
 	// Clear Old Data
 	LevelParser::Parser::Clear();
 
 	// Open File
-	fileHandler.open(filePath, std::ifstream::in);
+	fileHandler.open(filePath.c_str(), std::ifstream::in);
 
 	if (!fileHandler.is_open())
 		return ErrOpeningFile();
@@ -84,7 +124,10 @@ int LevelParser::Parser::ParseGameLevel(const char* filePath)
 	}
 
 	modelCount = models.size();
+	cameraCount = cameras.size();
 	lightCount = 0;		// TODO: Change to proper size when implemented
+	
+	fileHandler.close();
 
 	return LevelParser::OK;
 }

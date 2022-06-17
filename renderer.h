@@ -1,6 +1,7 @@
 #include "shaderc/shaderc.h" // needed for compiling shaders at runtime
 #include <cmath>
 #include "GraphicsObjects.h"
+#include "LevelParser.h"
 #ifdef _WIN32 // must use MT platform DLL libraries on windows
 	#pragma comment(lib, "shaderc_combined.lib") 
 #endif
@@ -93,6 +94,7 @@ private:
 	// what we need at a minimum to draw a triangle
 	std::vector<vkObject> vkObjects;
 	VkDevice device = nullptr;
+	VkPhysicalDevice physicalDevice = nullptr;
 
 	// Storage Buffers
 	std::vector<VkBuffer> storageBuffers;
@@ -124,6 +126,7 @@ private:
 	Light gLight;
 
 	std::vector<graphics::MODEL> gObjects;
+	LevelParser::Selector gLevelSelector;
 
 	// Shader Model Data sent to GPU
 	SHADER_MODEL_DATA gShaderModelData;
@@ -142,11 +145,9 @@ public:
 	float maxCameraSpeed, minCameraSpeed;
 	float maxSensitivity, minSensitivity;
 
-	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk, 
-		std::vector<graphics::MODEL> _objects, 
-		std::vector<graphics::CAMERA> _cameras,
+	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk,
 		Light _light = REND_DEFAULT_LIGHT) 
-			: win(_win), vlk(_vlk), gObjects(_objects), gCameras(_cameras), gLight(_light)
+			: win(_win), vlk(_vlk), gLight(_light)
 	{
 		unsigned int width, height;
 		win.GetClientWidth(width);
@@ -157,73 +158,16 @@ public:
 		gControllerProxy.Create();
 		gBufferedInputProxy.Create(win);
 
-		maxCameraSpeed = 3.0f;
-		minCameraSpeed = 0.1f;
-		maxSensitivity = G_PI * 1000 * 10;
-		minSensitivity = G_PI * 1000 * 0.5f;
-		inputModifiers.CameraSpeed = (maxCameraSpeed + minCameraSpeed) / 2;
-		inputModifiers.LookSensitivity = (maxSensitivity + minSensitivity) / 3;
-
-		// Set up main camera
-		GW::MATH::GMatrix::IdentityF(DefaultCamera.worldMatrix);
-		DefaultCamera.farPlane = 1000.0f;
-		DefaultCamera.nearPlane = 0.1f;
-		DefaultCamera.FOV = G_DEGREE_TO_RADIAN(90);
-
-		gCamera = gCameras.size() == 0 ? DefaultCamera : gCameras[0];
-
-		// Set Up Matrices
-		{			
-			GW::MATH::GMatrix::IdentityF(gMatrices.world);
-			GW::MATH::GMatrix::InverseF(gCamera.worldMatrix, gMatrices.view);
-
-			vlk.GetAspectRatio(gCamera.aspectRatio);
-			GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio, 
-				gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
-		}
-
-		// Set Shader Model Data
-		{
-			gShaderModelData.lightColor = gLight.Color;
-			gShaderModelData.lightDirection = gLight.Direction;
-			gShaderModelData.viewMatrix = gMatrices.view;
-			gShaderModelData.projectionMatrix = gMatrices.projection;
-
-			gShaderModelData.ambientColor.x = 0.25f;
-			gShaderModelData.ambientColor.y = 0.25f;
-			gShaderModelData.ambientColor.z = 0.35f;
-			gShaderModelData.ambientColor.w = 1;
-			gShaderModelData.cameraPos.x = gCamera.worldMatrix.row4.x;
-			gShaderModelData.cameraPos.y = gCamera.worldMatrix.row4.z;
-			gShaderModelData.cameraPos.z = gCamera.worldMatrix.row4.y;
-			gShaderModelData.cameraPos.w = gCamera.worldMatrix.row4.w;
-		}
+		// Select initial level
+		gLevelSelector.SelectNewLevel(true);
+		gLevelSelector.ParseSelectedLevel();
 
 		/***************** GEOMETRY INTIALIZATION ******************/
 		// Grab the device & physical device so we can allocate some stuff
-		VkPhysicalDevice physicalDevice = nullptr;
 		vlk.GetDevice((void**)&device);
 		vlk.GetPhysicalDevice((void**)&physicalDevice);
-
 		
-		unsigned int totalNumVerts = 0;
-		vkObjects.resize(gObjects.size());
-		for (int i = 0; i < gObjects.size(); i++)
-		{
-			// Create Vertex Buffer
-			unsigned int numBytes = sizeof(graphics::VERTEX) * gObjects[i].vertexCount;
-			GvkHelper::create_buffer(physicalDevice, device, numBytes,
-				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].vertexHandle), &(vkObjects[i].vertexData));
-			GvkHelper::write_to_buffer(device, vkObjects[i].vertexData, &(gObjects[i].vertices.front()), numBytes);
-
-			// Create Index Buffer
-			numBytes = sizeof(unsigned int) * gObjects[i].indexCount;
-			GvkHelper::create_buffer(physicalDevice, device, numBytes,
-				VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].indexHandle), &(vkObjects[i].indexData));
-			GvkHelper::write_to_buffer(device, vkObjects[i].indexData, &(gObjects[i].indices.front()), numBytes);
-		}
+		ChangeLevel(gLevelSelector.levelParser.ModelsToVector(), gLevelSelector.levelParser.CamerasToVector());
 
 		unsigned int chainSwapCount;
 		vlk.GetSwapchainImageCount(chainSwapCount);
@@ -686,8 +630,90 @@ public:
 			pushConstants.matrix_offset += obj.instanceCount;
 		}
 	}
-	
+
+	void CheckCommands()
+	{
+		float keyState;
+		gInputProxy.GetState(G_KEY_L, keyState);
+		if (keyState > 0 && !gLevelSelector.IsCurrentlySelectingFile() && gLevelSelector.SelectNewLevel(false))
+		{
+			CleanUpVertexAndIndexBuffers();
+			gLevelSelector.ParseSelectedLevel();
+			ChangeLevel(gLevelSelector.levelParser.ModelsToVector(), gLevelSelector.levelParser.CamerasToVector());
+			WriteModelsToShaderData();
+		}
+	}
+
 private:
+	void ChangeLevel(std::vector<graphics::MODEL> _objects, std::vector<graphics::CAMERA> _cameras)
+	{
+		gObjects = _objects;
+		gCameras = _cameras;
+
+		maxCameraSpeed = 13.0f;
+		minCameraSpeed = 0.1f;
+		maxSensitivity = G_PI * 1000 * 10;
+		minSensitivity = G_PI * 1000 * 0.5f;
+		inputModifiers.CameraSpeed = (maxCameraSpeed + minCameraSpeed) / 2;
+		inputModifiers.LookSensitivity = (maxSensitivity + minSensitivity) / 4;
+
+		// Set up main camera
+		GW::MATH::GMatrix::IdentityF(DefaultCamera.worldMatrix);
+		DefaultCamera.farPlane = 1000.0f;
+		DefaultCamera.nearPlane = 0.1f;
+		DefaultCamera.FOV = G_DEGREE_TO_RADIAN(90);
+
+		gCamera = gCameras.size() == 0 ? DefaultCamera : gCameras[0];
+
+		// Set Up Matrices
+		{
+			GW::MATH::GMatrix::IdentityF(gMatrices.world);
+			GW::MATH::GMatrix::InverseF(gCamera.worldMatrix, gMatrices.view);
+
+			vlk.GetAspectRatio(gCamera.aspectRatio);
+			GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
+				gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
+		}
+
+		// Set Shader Model Data
+		{
+			gShaderModelData.lightColor = gLight.Color;
+			gShaderModelData.lightDirection = gLight.Direction;
+			gShaderModelData.viewMatrix = gMatrices.view;
+			gShaderModelData.projectionMatrix = gMatrices.projection;
+
+			gShaderModelData.ambientColor.x = 0.25f;
+			gShaderModelData.ambientColor.y = 0.25f;
+			gShaderModelData.ambientColor.z = 0.35f;
+			gShaderModelData.ambientColor.w = 1;
+			gShaderModelData.cameraPos.x = gCamera.worldMatrix.row4.x;
+			gShaderModelData.cameraPos.y = gCamera.worldMatrix.row4.z;
+			gShaderModelData.cameraPos.z = gCamera.worldMatrix.row4.y;
+			gShaderModelData.cameraPos.w = gCamera.worldMatrix.row4.w;
+		}
+
+		// Create Vertex/Index Buffers
+
+		unsigned int totalNumVerts = 0;
+		vkObjects.resize(gObjects.size());
+		for (int i = 0; i < gObjects.size(); i++)
+		{
+			// Create Vertex Buffer
+			unsigned int numBytes = sizeof(graphics::VERTEX) * gObjects[i].vertexCount;
+			GvkHelper::create_buffer(physicalDevice, device, numBytes,
+				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].vertexHandle), &(vkObjects[i].vertexData));
+			GvkHelper::write_to_buffer(device, vkObjects[i].vertexData, &(gObjects[i].vertices.front()), numBytes);
+
+			// Create Index Buffer
+			numBytes = sizeof(unsigned int) * gObjects[i].indexCount;
+			GvkHelper::create_buffer(physicalDevice, device, numBytes,
+				VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].indexHandle), &(vkObjects[i].indexData));
+			GvkHelper::write_to_buffer(device, vkObjects[i].indexData, &(gObjects[i].indices.front()), numBytes);
+		}
+	}
+
 	void WriteModelsToShaderData()
 	{
 		unsigned int matrixOffset = 0;
@@ -711,7 +737,7 @@ private:
 		//GvkHelper::write_to_buffer(device, storageData[index], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 	}
 
-	void CleanUp()
+	void CleanUpVertexAndIndexBuffers()
 	{
 		// wait till everything has completed
 		vkDeviceWaitIdle(device);
@@ -723,6 +749,11 @@ private:
 			vkDestroyBuffer(device, vkObj.vertexHandle, nullptr);
 			vkFreeMemory(device, vkObj.vertexData, nullptr);
 		}
+	}
+
+	void CleanUp()
+	{
+		CleanUpVertexAndIndexBuffers();
 		
 		for (VkBuffer& buffer : storageBuffers)
 			vkDestroyBuffer(device, buffer, nullptr);

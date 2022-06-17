@@ -13,14 +13,13 @@
 // With what we want & what we don't defined we can include the API
 #include "../Gateware/Gateware/Gateware.h"
 #include "renderer.h"
-#include "LevelParser.h"
-//#include <windows.h>
-//#include <Commdlg.h>
+
 // open some namespaces to compact the code a bit
 using namespace GW;
 using namespace CORE;
 using namespace SYSTEM;
 using namespace GRAPHICS;
+
 // lets pop a window and use Vulkan to clear to a red screen
 int main()
 {
@@ -52,19 +51,24 @@ int main()
 		if (+vulkan.Create(win, GW::GRAPHICS::DEPTH_BUFFER_SUPPORT))
 #endif
 		{
-			LevelParser::Parser parser;
-			parser.ParseGameLevel("../GameLevel.txt");
-
-			auto models = parser.ModelsToVector();
-			auto cameras = parser.CamerasToVector();
-
-			Renderer renderer(win, vulkan, models, cameras);
+			Renderer renderer(win, vulkan);
 			
-			//OpenGameLevel();
+			float keyState = 0;
 			while (+win.ProcessWindowEvents())
 			{
 				if (+vulkan.StartFrame(2, clrAndDepth))
 				{
+					//gInputProxy.GetState(G_KEY_L, keyState);
+					//if (keyState > 0 && !levelSelector.IsCurrentlySelectingFile())
+					//{
+					//	parser.ParseGameLevel(levelSelector.SelectNewLevel(false));
+					//	auto models = parser.ModelsToVector();
+					//	auto cameras = parser.CamerasToVector();
+
+					//	//renderer.LoadLevel(models, cameras);
+					//}
+
+					renderer.CheckCommands();
 					renderer.UpdateCamera();
 					renderer.Render();
 					vulkan.EndFrame(true);
@@ -74,25 +78,3 @@ int main()
 	}
 	return 0; // that's all folks
 }
-
-//void OpenGameLevel()
-//{
-//	OPENFILENAME ofn;
-//	wchar_t szFile[100];
-//	ZeroMemory(&ofn, sizeof(ofn));
-//	ofn.lStructSize = sizeof(ofn);
-//	ofn.hwndOwner = NULL;
-//	ofn.lpstrFile = szFile;
-//	ofn.lpstrFile[0] = '\0';
-//	ofn.nMaxFile = sizeof(szFile);
-//	ofn.lpstrFilter = L"All\0*.Level\0";
-//	ofn.nFilterIndex = 1;
-//	ofn.lpstrFileTitle = NULL;
-//	ofn.nMaxFileTitle = 0;
-//	ofn.lpstrInitialDir = NULL;
-//	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-//
-//	GetOpenFileName(&ofn);
-//
-//	MessageBox(NULL, ofn.lpstrFile, L"File Name", MB_OK);
-//}

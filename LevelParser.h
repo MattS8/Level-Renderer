@@ -5,6 +5,7 @@
 #include <iostream>
 #include <unordered_map>
 #include <vector>
+#include <string>
 #include "../Gateware/Gateware/Gateware.h"
 
 /**
@@ -73,10 +74,24 @@ namespace LevelParser
 		unsigned int cameraCount;
 		unsigned int lightCount;
 
-		int ParseGameLevel(const char* filePath);
+		int ParseGameLevel(std::string& filePath);
 		std::vector<graphics::MODEL> ModelsToVector();
 		std::vector<graphics::CAMERA> CamerasToVector();
-		
+	};
+
+	class Selector
+	{
+		std::string selectedFile = "";
+		bool currentlySelectingFile = false;
+
+	public:
+		Parser levelParser;
+
+		bool SelectNewLevel(bool showPrompt);
+
+		inline std::string GetSelectedFile() { return selectedFile; }
+		inline bool IsCurrentlySelectingFile() { return currentlySelectingFile; }
+		inline void ParseSelectedLevel() { levelParser.ParseGameLevel(selectedFile); }
 	};
 }
 
