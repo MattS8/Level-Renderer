@@ -10,7 +10,7 @@ import math
 
 print("----------Begin Level Export----------")
 
-path = os.path.join(os.path.dirname(bpy.data.filepath), "../GameLevel.txt")
+path = os.path.join(os.path.dirname(bpy.data.filepath), "GameLevel.txt")
 file = open(path,"w")
 file.write("# Game Level Exporter v1.0\n")
 
