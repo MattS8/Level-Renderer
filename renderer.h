@@ -498,24 +498,6 @@ public:
 		});
 	}
 
-	void RotateLogo()
-	{
-		static std::chrono::steady_clock::time_point timePoint = std::chrono::high_resolution_clock::now();
-		auto currentTime = std::chrono::high_resolution_clock::now();
-		float timePassed = std::chrono::duration<float, std::milli>(currentTime - timePoint).count() / 1000; // Time in seconds
-		static float totalRotation = 0;
-		static float totalTime = 0;
-		totalTime += timePassed;
-		
-		//float rotationAmount = G_DEGREE_TO_RADIAN(10) * timePassed * (std::sinf(totalTime) * 2);
-		//rotationAmount += G_DEGREE_TO_RADIAN(10) * (std::sinf(totalRotation) + 2) * timePassed;
-		float rotationAmount = G_DEGREE_TO_RADIAN(25) * timePassed;
-		totalRotation += rotationAmount;
-		GW::MATH::GMatrix::RotateYGlobalF(gShaderModelData.matrices[1], rotationAmount, gShaderModelData.matrices[1]);
-		
-		timePoint = std::chrono::high_resolution_clock::now();
-	}
-
 	void UpdateCamera()
 	{
 		static std::chrono::steady_clock::time_point timePoint = std::chrono::high_resolution_clock::now();
