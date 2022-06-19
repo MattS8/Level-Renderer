@@ -9,7 +9,7 @@ bool LevelSelector::Selector::SelectNewLevel(bool showPrompt = false)
 {
 
 	if (showPrompt)
-		MessageBox(NULL, L"Levels can be loaded by pressing the 'L' key. \n\nAccepted files can be in either .txt or .lvl format. \n\nFor more information about my custom .lvl format, see the documentation!",
+		MessageBox(NULL, L"Levels can be loaded by pressing the 'F1' key. \n\nAccepted files can be in either .txt or .lvl format. \n\nFor more information about my custom .lvl format, see the documentation!",
 			L"Level Selection",
 			MB_OK);
 
