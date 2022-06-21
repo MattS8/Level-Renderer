@@ -42,6 +42,8 @@ namespace LevelSelector
 
 	extern const char* modelAssetPath;
 	extern const char* moelAssetExt;
+	extern const char* textureAssetPath;
+	extern const char* textureExt;
 
 	class Parser
 	{
@@ -70,13 +72,15 @@ namespace LevelSelector
 		std::unordered_map<std::string, graphics::MODEL> models;
 		std::unordered_map<std::string, graphics::CAMERA> cameras;
 		std::unordered_map<std::string, graphics::LIGHT> lights;
-		unsigned int modelCount;
-		unsigned int cameraCount;
-		unsigned int lightCount;
+		unsigned int modelCount = 0;
+		unsigned int cameraCount = 0;
+		unsigned int lightCount = 0;
 
 		int ParseGameLevel(std::string& filePath);
 		std::vector<graphics::MODEL> ModelsToVector();
 		std::vector<graphics::CAMERA> CamerasToVector();
+
+		graphics::LEVEL_INFO levelInfo = { 0 };
 	};
 
 	class Selector

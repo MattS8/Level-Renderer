@@ -41,36 +41,12 @@ bool LevelSelector::Selector::SelectNewLevel(bool showPrompt = false)
 	return newFileSelected;
 }
 
-
-
 const char* LevelSelector::modelAssetPath = "../Model Assets/H2B/";
-const char* LevelSelector::moelAssetExt = ".h2b";
+const char* LevelSelector::textureAssetPath = "../Model Assets/Textures/";
+const char* LevelSelector::textureExt = ".ktx";
+const char* LevelSelector::modelAssetExt = ".h2b";
 
-std::vector<graphics::MODEL> LevelSelector::Parser::ModelsToVector()
-{
-	std::vector<graphics::MODEL> modelsVector;
-	modelsVector.reserve(models.size());
-
-	for (auto itter = models.begin(); itter != models.end(); itter++)
-	{
-		modelsVector.push_back(itter->second);
-	}
-
-	return modelsVector;
-}
-
-std::vector<graphics::CAMERA> LevelSelector::Parser::CamerasToVector()
-{
-	std::vector<graphics::CAMERA> camerasVector;
-	camerasVector.reserve(cameras.size());
-
-	for (auto itter = cameras.begin(); itter != cameras.end(); itter++)
-	{
-		camerasVector.push_back(itter->second);
-	}
-
-	return camerasVector;
-}
+// Main Parse Function
 
 int LevelSelector::Parser::ParseGameLevel(std::string& filePath)
 {
@@ -126,13 +102,42 @@ int LevelSelector::Parser::ParseGameLevel(std::string& filePath)
 	modelCount = models.size();
 	cameraCount = cameras.size();
 	lightCount = 0;		// TODO: Change to proper size when implemented
-	
+
 	fileHandler.close();
 
 	return LevelSelector::OK;
 }
 
-// Loaders
+// Data Conversions
+
+std::vector<graphics::MODEL> LevelSelector::Parser::ModelsToVector()
+{
+	std::vector<graphics::MODEL> modelsVector;
+	modelsVector.reserve(models.size());
+
+	for (auto itter = models.begin(); itter != models.end(); itter++)
+	{
+		modelsVector.push_back(itter->second);
+	}
+
+	return modelsVector;
+}
+
+std::vector<graphics::CAMERA> LevelSelector::Parser::CamerasToVector()
+{
+	std::vector<graphics::CAMERA> camerasVector;
+	camerasVector.reserve(cameras.size());
+
+	for (auto itter = cameras.begin(); itter != cameras.end(); itter++)
+	{
+		camerasVector.push_back(itter->second);
+	}
+
+	return camerasVector;
+}
+
+
+// Private Loaders
 
 int LevelSelector::Parser::ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset)
 {
@@ -168,27 +173,41 @@ int LevelSelector::Parser::ParseMatrix(GW::MATH::GMATRIXF& matrix)
 	return LevelSelector::OK;
 }
 
-std::string LevelSelector::Parser::GetMeshNameFromLine()
-{
-	int dotPos = line2Parse.find('.');
-	
-	return dotPos != std::string::npos 
-		? line2Parse.substr(0, dotPos)
-		: std::string(line2Parse);
-}
-
 int LevelSelector::Parser::LoadMesh(std::string meshName)
 {
 	if (models.find(meshName) == models.end())
 	{
 		std::string fullPath = std::string(modelAssetPath)
 			+ meshName
-			+ moelAssetExt;
+			+ modelAssetExt;
 		if (!h2bParser.Parse(fullPath.c_str()))
 			return ErrFindingModelFile(fullPath);
 
 		h2bParser.model.instanceCount = 1;
 		
+		// Add up number of Diffuse, Specular, and Normal Materials
+		for (graphics::MATERIAL& mat : h2bParser.model.materials)
+		{
+			levelInfo.totalMaterialCount += 1;
+			if (mat.map_Kd != nullptr)
+			{
+				mat.map_Kd = FormatTexturePath(mat.map_Kd).c_str();
+
+				h2bParser.model.materialInfo.diffuseCount += 1;
+				levelInfo.totalDiffuseCount += 1;
+			}
+			if (mat.map_Ks != nullptr)
+			{
+				h2bParser.model.materialInfo.specularCount += 1;
+				levelInfo.totalSpecularCount += 1;
+			}
+			if (mat.map_Ns != nullptr)
+			{
+				h2bParser.model.materialInfo.normalCount += 1;
+				levelInfo.totalNormalCount += 1;
+			}
+		}
+
 		h2bParser.model.modelName = meshName;
 		models[meshName] = h2bParser.model;
 	}
@@ -258,6 +277,28 @@ int LevelSelector::Parser::LoadLight(const char* lightFile)
 	return LevelSelector::OK;
 }
 
+// String Parsers
+std::string LevelSelector::Parser::GetMeshNameFromLine()
+{
+	int dotPos = line2Parse.find('.');
+
+	return dotPos != std::string::npos
+		? line2Parse.substr(0, dotPos)
+		: std::string(line2Parse);
+}
+
+std::string FormatTexturePath(const char* filePath)
+{
+	std::string formattedPath(filePath);
+	int relativePathLocation = formattedPath.find_last_of('\\');
+	if (relativePathLocation != std::string::npos)
+	{
+		formattedPath = formattedPath.substr(relativePathLocation);
+	}
+
+	return formattedPath;
+}
+
 // Error Functions
 
 int LevelSelector::Parser::ErrFindingModelFile(std::string& filePath)
@@ -282,6 +323,11 @@ int LevelSelector::Parser::ErrOpeningFile()
 
 void LevelSelector::Parser::Clear()
 {
+	levelInfo.totalMaterialCount = 0;
+	levelInfo.totalDiffuseCount = 0;
+	levelInfo.totalSpecularCount = 0;
+	levelInfo.totalNormalCount = 0;
+
 	models.clear();
 	cameras.clear();
 	lights.clear();
