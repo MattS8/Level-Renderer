@@ -62,8 +62,11 @@ namespace LevelSelector
 		int LoadMesh(std::string meshName);
 		int LoadCamera(std::string cameraName);
 		int LoadLight(const char* lightFile);
+
+		// Parse Helpers
 		int ParseMatrix(GW::MATH::GMATRIXF& matrix);
 		int ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset);
+		void ParseMaterials();
 
 		// String Parser
 		std::string GetMeshNameFromLine();

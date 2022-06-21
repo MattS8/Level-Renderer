@@ -129,12 +129,15 @@ private:
 	std::vector<VkImageView> gDiffuseTextureViews; // one per texture
 	std::vector<ktxVulkanTexture> gSpecularTextures; // one per texture
 	std::vector<VkImageView> gSpecularTextureViews; // one per texture
+	std::vector<ktxVulkanTexture> gNormalTextures; // one per texture
+	std::vector<VkImageView> gNormalTextureViews; // one per texture
 
 	VkSampler gTextureSampler = nullptr; // can be shared, effects quality & addressing mode
 
 	// note that unlike uniform buffers, we don't need one for each "in-flight" frame
 	std::vector<VkDescriptorSet> gDiffuseTextureDescriptorSets;
 	std::vector<VkDescriptorSet> gSpecularTextureDescriptorSets;
+	std::vector<VkDescriptorSet> gNormalTextureDescriptorSets;
 
 	// be aware that all pipeline shaders share the same bind points
 	//VkDescriptorSetLayout gPixelDescriptorLayout = nullptr;
@@ -408,6 +411,7 @@ public:
 
 		// Pixel shader will have its own descriptor set layout
 		descLayoutCreateInfo.pBindings = &descriptorLayoutBinding_Pixel;
+		descLayoutCreateInfo.bindingCount = 1;
 		res = vkCreateDescriptorSetLayout(device, &descLayoutCreateInfo, nullptr, &descriptorSetLayout_Pixel);
 		if (res != VkResult::VK_SUCCESS)
 		{
@@ -421,17 +425,22 @@ public:
 		// this is how many unique descriptor sets you want to allocate 
 		// we need one for each uniform buffer and one for each unique texture
 		unsigned int diffuseDescriptorCount = gLevelSelector.levelParser.levelInfo.totalDiffuseCount + 1;
-		unsigned int total_descriptorsets = gMatrixBuffers.size() + diffuseDescriptorCount;
-		VkDescriptorPoolSize descriptorPoolSize[2] = {
+		unsigned int specularDescriptorCount = gLevelSelector.levelParser.levelInfo.totalSpecularCount + 1;
+		unsigned int normalDescriptorCount = gLevelSelector.levelParser.levelInfo.totalNormalCount + 1;
+		unsigned int total_descriptorsets = gMatrixBuffers.size() 
+			+ diffuseDescriptorCount + specularDescriptorCount + normalDescriptorCount;
+		VkDescriptorPoolSize descriptorPoolSize[4] = {
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gMatrixBuffers.size() },
-			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, diffuseDescriptorCount}
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, diffuseDescriptorCount},
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, specularDescriptorCount},
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, normalDescriptorCount}
 		};
 
 		descPoolCreateInfo = {};
 		descPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		descPoolCreateInfo.flags = 0;
 		descPoolCreateInfo.maxSets = total_descriptorsets;
-		descPoolCreateInfo.poolSizeCount = 2;
+		descPoolCreateInfo.poolSizeCount = 4;
 		descPoolCreateInfo.pPoolSizes = descriptorPoolSize;
 		descPoolCreateInfo.pNext = nullptr;
 		res = vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descPool);
@@ -442,7 +451,6 @@ public:
 		}
 
 		// Create a descriptor sets for our diffuse textures!
-		
 		gDiffuseTextureDescriptorSets.resize(diffuseDescriptorCount);
 		VkDescriptorSetAllocateInfo descriptorsetAllocateInfo = {};
 		descriptorsetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -455,7 +463,31 @@ public:
 			res = vkAllocateDescriptorSets(device, &descriptorsetAllocateInfo, &gDiffuseTextureDescriptorSets[i]);
 			if (res != VkResult::VK_SUCCESS)
 			{
-				std::cerr << "ERROR: Unable to allocate descriptorSets!\n";
+				std::cerr << "ERROR: Unable to allocate diffuse descriptorSets!\n";
+				return;
+			}
+		}
+
+		// Create a descriptor sets for our specular textures!
+		gSpecularTextureDescriptorSets.resize(specularDescriptorCount);
+		for (int i = 0; i < specularDescriptorCount; i++)
+		{
+			res = vkAllocateDescriptorSets(device, &descriptorsetAllocateInfo, &gSpecularTextureDescriptorSets[i]);
+			if (res != VkResult::VK_SUCCESS)
+			{
+				std::cerr << "ERROR: Unable to allocate specular descriptorSets!\n";
+				return;
+			}
+		}
+
+		// Create a descriptor sets for our normal textures!
+		gNormalTextureDescriptorSets.resize(normalDescriptorCount);
+		for (int i = 0; i < normalDescriptorCount; i++)
+		{
+			res = vkAllocateDescriptorSets(device, &descriptorsetAllocateInfo, &gNormalTextureDescriptorSets[i]);
+			if (res != VkResult::VK_SUCCESS)
+			{
+				std::cerr << "ERROR: Unable to allocate normal descriptorSets!\n";
 				return;
 			}
 		}
@@ -487,8 +519,10 @@ public:
 		// Descriptor pipeline layout
 		VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
 		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipeline_layout_create_info.setLayoutCount = 2;
-		VkDescriptorSetLayout layouts[2] = { descriptorSetLayout_Vertex, descriptorSetLayout_Pixel };
+		pipeline_layout_create_info.setLayoutCount = 4;
+		VkDescriptorSetLayout layouts[4] = { 
+			descriptorSetLayout_Vertex, 
+			descriptorSetLayout_Pixel, descriptorSetLayout_Pixel, descriptorSetLayout_Pixel };
 		pipeline_layout_create_info.pSetLayouts = layouts;
 		
 		// Push Constant layout
@@ -522,7 +556,7 @@ public:
 			&pipeline_create_info, nullptr, &pipeline);
 		
 		// With pipeline created, lets load in our texture and bind it to our descriptor set
-		LoadDiffuseTextures();
+		LoadTextures();
 
 		/***************** CLEANUP / SHUTDOWN ******************/
 		// GVulkanSurface will inform us when to release any allocated resources
@@ -707,6 +741,7 @@ public:
 
 		unsigned int diffuseOffset = 1;
 		unsigned int specularOffset = 1;
+		unsigned int normalOffset = 1;
 		for (int i = 0; i < gObjects.size(); i++)
 		{
 			graphics::MODEL obj = gObjects[i];
@@ -716,22 +751,49 @@ public:
 			// Reset offset counters
 			unsigned int tDiffuseCount = 0;
 			unsigned int tSpecularCount = 0;
+			unsigned int tNormalCount = 0;
 
 			// Loop through each submesh and bind textures/offsets
 			for (int j = 0; j < obj.meshCount; j++)
 			{
 				// Bind Diffuse Texture Descriptor Sets to Pixel Shader
 				if (obj.materialInfo.diffuseCount > tDiffuseCount)
+				{
 					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 						pipelineLayout, 1, 1,
 						&(gDiffuseTextureDescriptorSets[diffuseOffset++]), 0, nullptr);
+					++tDiffuseCount;
+				}
 				else
 					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 						pipelineLayout, 1, 1,
 						&(gDiffuseTextureDescriptorSets[0]), 0, nullptr);
 
-				// TODO: Bind Specular Texture Descriptor Sets to Pixel Shader
+				// Bind Specular Texture Descriptor Sets to Pixel Shader
+				if (obj.materialInfo.specularCount > tSpecularCount)
+				{
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 2, 1,
+						&(gSpecularTextureDescriptorSets[specularOffset++]), 0, nullptr);
+					++tSpecularCount;
+				}
+				else
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 2, 1,
+						&(gSpecularTextureDescriptorSets[0]), 0, nullptr);
 
+				// Bind Normal Texture Descriptor Sets to Pixel Shader
+				if (obj.materialInfo.normalCount > tNormalCount)
+				{
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 3, 1,
+						&(gNormalTextureDescriptorSets[normalOffset++]), 0, nullptr);
+					++tNormalCount;
+				}
+				else
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 3, 1,
+						&(gSpecularTextureDescriptorSets[0]), 0, nullptr);
 
 				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 					0, sizeof(PushConstants), &pushConstants);
@@ -827,7 +889,7 @@ private:
 		}
 	}
 
-	bool LoadDiffuseTextures()
+	bool LoadTextures()
 	{
 		VkQueue queue;
 		VkCommandPool commandPool;
@@ -848,40 +910,117 @@ private:
 
 		// load all textures into CPU memory from file first
 		unsigned int totalDiffuseCount = gLevelSelector.levelParser.levelInfo.totalDiffuseCount + 1;
+		unsigned int totalSpecularCount = gLevelSelector.levelParser.levelInfo.totalSpecularCount + 1;
+		unsigned int totalNormalCount = gLevelSelector.levelParser.levelInfo.totalNormalCount + 1;
+		// Preallocate space for diffuse textures/views
 		gDiffuseTextures.resize(totalDiffuseCount);
 		gDiffuseTextureViews.resize(totalDiffuseCount);
-		unsigned index = 0;
+		// Preallocate space for specular textures/views
+		gSpecularTextureViews.resize(totalSpecularCount);
+		gSpecularTextures.resize(totalSpecularCount);
+		// Preallocate space for normal textures/views
+		gNormalTextureViews.resize(totalNormalCount);
+		gNormalTextures.resize(totalNormalCount);
+
+		unsigned int diffuseIndex = 0;
+		unsigned int specularIndex = 0;
+		unsigned int normalIndex = 0;
 		unsigned maxLod = 0;
 
-		ktxResult = CreateTexture(DEFAULT_DIFFUSE_MAP, &kTexture, vlkDeviceInfo, index, maxLod);
+		// Create default diffuse map
+		ktxResult = CreateTexture(DEFAULT_DIFFUSE_MAP, &kTexture, vlkDeviceInfo, 
+			&(gDiffuseTextures[0]), diffuseIndex, maxLod);
 		if (ktxResult != KTX_error_code::KTX_SUCCESS)
 		{
 			std::cerr << "ERROR: LoadTextures - failed to load default diffuse map!\n";
 			return false;
 		}
-		ktxTexture* kTexture2;
+
+		// Create default specular map
+		ktxResult = CreateTexture(DEFAULT_SPECULAR_MAP, &kTexture, vlkDeviceInfo, 
+			&(gSpecularTextures[0]), specularIndex, maxLod);
+		if (ktxResult != KTX_error_code::KTX_SUCCESS)
+		{
+			std::cerr << "ERROR: LoadTextures - failed to load default specular map!\n";
+			return false;
+		}
+
+		// Create default normal map
+		ktxResult = CreateTexture(DEFAULT_NORMAL_MAP, &kTexture, vlkDeviceInfo,
+			&(gNormalTextures[0]), normalIndex, maxLod);
+		if (ktxResult != KTX_error_code::KTX_SUCCESS)
+		{
+			std::cerr << "ERROR: LoadTextures - failed to load default normal map!\n";
+			return false;
+		}
+
+		// Create All Textures from objects
 		for (auto graphicsObject : gObjects)
 		{
 			for (int i = 0; i < graphicsObject.materials.size(); i++)
 			{
-				std::string diffuseTextureStr = graphicsObject.diffuseTextures[i];
-				if (diffuseTextureStr.compare("") != 0)
+				// Create Diffuse Texture
+				std::string textureStr = graphicsObject.diffuseTextures[i];
+				if (textureStr.compare("") != 0)
 				{
-					ktxResult = CreateTexture(diffuseTextureStr.c_str(), &kTexture2, vlkDeviceInfo, index, maxLod);
+					ktxResult = CreateTexture(textureStr.c_str(), &kTexture, vlkDeviceInfo, 
+						&(gDiffuseTextures[diffuseIndex]), diffuseIndex, maxLod);
 					if (ktxResult != KTX_error_code::KTX_SUCCESS)
 					{
-						std::cerr << "ERROR: LoadTextures - failed to load diffuse map (" << diffuseTextureStr << ")\n";
+						std::cerr << "ERROR: LoadTextures - failed to load diffuse map (" << textureStr << ")\n";
+						return false;
+					}
+				}
+
+				// Create Specular Texture
+				textureStr = graphicsObject.specularTextures[i];
+				if (textureStr.compare("") != 0)
+				{
+					ktxResult = CreateTexture(textureStr.c_str(), &kTexture, vlkDeviceInfo, 
+						&(gSpecularTextures[specularIndex]), specularIndex, maxLod);
+					if (ktxResult != KTX_error_code::KTX_SUCCESS)
+					{
+						std::cerr << "ERROR: LoadTextures - failed to load diffuse map (" << textureStr << ")\n";
+						return false;
+					}
+				}
+
+				// Create Normal Texture
+				textureStr = graphicsObject.normalTextures[i];
+				if (textureStr.compare("") != 0)
+				{
+					ktxResult = CreateTexture(textureStr.c_str(), &kTexture, vlkDeviceInfo,
+						&(gNormalTextures[normalIndex]), normalIndex, maxLod);
+					if (ktxResult != KTX_error_code::KTX_SUCCESS)
+					{
+						std::cerr << "ERROR: LoadTextures - failed to load normal map (" << textureStr << ")\n";
 						return false;
 					}
 				}
 			}
 		}
 
-		// Error check, ensure proper number of diffuse maps were read in.
-		if (index != totalDiffuseCount)
+		// Error check, ensure proper number of diffuse textures were read in.
+		if (diffuseIndex != totalDiffuseCount)
 		{
-			std::cerr << "ERR: LoadTextures - diffuseMap count mismatch! (" << index <<
-				" vs excepted " << gLevelSelector.levelParser.levelInfo.totalDiffuseCount << ")\n";
+			std::cerr << "ERR: LoadTextures - diffuseMap count mismatch! (" << diffuseIndex <<
+				" vs excepted " << totalDiffuseCount << ")\n";
+			return false;
+		}
+
+		// Error check, ensure proper number of specular textures were read in.
+		if (specularIndex != totalSpecularCount)
+		{
+			std::cerr << "ERR: LoadTextures - specularMap count mismatch! (" << specularIndex <<
+				" vs excepted " << totalSpecularCount << ")\n";
+			return false;
+		}
+
+		// Error check, ensure proper number of normal textures were read in.
+		if (normalIndex != totalNormalCount)
+		{
+			std::cerr << "ERR: LoadTextures - normalMap count mismatch! (" << specularIndex <<
+				" vs excepted " << totalSpecularCount << ")\n";
 			return false;
 		}
 
@@ -914,7 +1053,11 @@ private:
 		}
 
 		// Then create image views for diffuse textures
-		for (index = 0; index < gDiffuseTextures.size(); index++)
+		for (diffuseIndex = specularIndex = normalIndex = 0; 
+			diffuseIndex < gDiffuseTextures.size() 
+				|| specularIndex < gSpecularTextures.size() 
+				|| normalIndex < gNormalTextures.size(); 
+			diffuseIndex++, specularIndex++, normalIndex++)
 		{
 			// Textures are not directly accessed by the shaders and are abstracted
 			// by image views containing additional information and sub resource ranges.
@@ -926,38 +1069,114 @@ private:
 				VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
 				VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A
 			};
-			viewInfo.image = gDiffuseTextures[index].image;
-			viewInfo.format = gDiffuseTextures[index].imageFormat;
-			viewInfo.viewType = gDiffuseTextures[index].viewType;
-			viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			viewInfo.subresourceRange.layerCount = gDiffuseTextures[index].layerCount;
-			viewInfo.subresourceRange.levelCount = gDiffuseTextures[index].levelCount;
-			viewInfo.subresourceRange.baseMipLevel = 0;
-			viewInfo.subresourceRange.baseArrayLayer = 0;
-			viewInfo.pNext = nullptr;
-			VkResult vr = vkCreateImageView(device, &viewInfo, nullptr, &(gDiffuseTextureViews[index]));
-			if (vr != VkResult::VK_SUCCESS)
+
+			// Create diffuse image view
+			if (diffuseIndex < gDiffuseTextures.size()) 
 			{
-				std::cerr << "ERROR: LoadTextures - Failed to create Image view (" << index << ")\n";
-				return false;
+				viewInfo.image = gDiffuseTextures[diffuseIndex].image;
+				viewInfo.format = gDiffuseTextures[diffuseIndex].imageFormat;
+				viewInfo.viewType = gDiffuseTextures[diffuseIndex].viewType;
+				viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				viewInfo.subresourceRange.layerCount = gDiffuseTextures[diffuseIndex].layerCount;
+				viewInfo.subresourceRange.levelCount = gDiffuseTextures[diffuseIndex].levelCount;
+				viewInfo.subresourceRange.baseMipLevel = 0;
+				viewInfo.subresourceRange.baseArrayLayer = 0;
+				viewInfo.pNext = nullptr;
+				VkResult vr = vkCreateImageView(device, &viewInfo, nullptr,
+					&(gDiffuseTextureViews[diffuseIndex]));
+				if (vr != VkResult::VK_SUCCESS)
+				{
+					std::cerr << "ERROR: LoadTextures - Failed to create Image view (" << diffuseIndex << ")\n";
+					return false;
+				}
+
+				VkWriteDescriptorSet write_descriptorset = {};
+				write_descriptorset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				write_descriptorset.descriptorCount = 1;
+				write_descriptorset.dstArrayElement = 0;
+				write_descriptorset.dstBinding = 0;
+				write_descriptorset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				write_descriptorset.dstSet = gDiffuseTextureDescriptorSets[diffuseIndex];
+				VkDescriptorImageInfo diinfo = {
+					gTextureSampler,
+					gDiffuseTextureViews[diffuseIndex],
+					gDiffuseTextures[diffuseIndex].imageLayout
+				};
+				write_descriptorset.pImageInfo = &diinfo;
+				vkUpdateDescriptorSets(device, 1, &write_descriptorset, 0, nullptr);
 			}
 
-			VkWriteDescriptorSet write_descriptorset = {};
-			write_descriptorset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			write_descriptorset.descriptorCount = 1;
-			write_descriptorset.dstArrayElement = 0;
-			write_descriptorset.dstBinding = 0;
-			write_descriptorset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			write_descriptorset.dstSet = gDiffuseTextureDescriptorSets[index];
-			VkDescriptorImageInfo diinfo = {
-				gTextureSampler,
-				gDiffuseTextureViews[index],
-				gDiffuseTextures[index].imageLayout
-			};
-			write_descriptorset.pImageInfo = &diinfo;
-			vkUpdateDescriptorSets(device, 1, &write_descriptorset, 0, nullptr);
+			// Create specular image view
+			if (specularIndex < gSpecularTextures.size())
+			{
+				viewInfo.image = gSpecularTextures[specularIndex].image;
+				viewInfo.format = gSpecularTextures[specularIndex].imageFormat;
+				viewInfo.viewType = gSpecularTextures[specularIndex].viewType;
+				viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				viewInfo.subresourceRange.layerCount = gSpecularTextures[specularIndex].layerCount;
+				viewInfo.subresourceRange.levelCount = gSpecularTextures[specularIndex].levelCount;
+				viewInfo.subresourceRange.baseMipLevel = 0;
+				viewInfo.subresourceRange.baseArrayLayer = 0;
+				viewInfo.pNext = nullptr;
+				VkResult vr = vkCreateImageView(device, &viewInfo, nullptr,
+					&(gSpecularTextureViews[specularIndex]));
+				if (vr != VkResult::VK_SUCCESS)
+				{
+					std::cerr << "ERROR: LoadTextures - Failed to create Image view (" << specularIndex << ")\n";
+					return false;
+				}
 
+				VkWriteDescriptorSet write_descriptorset = {};
+				write_descriptorset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				write_descriptorset.descriptorCount = 1;
+				write_descriptorset.dstArrayElement = 0;
+				write_descriptorset.dstBinding = 0;
+				write_descriptorset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				write_descriptorset.dstSet = gSpecularTextureDescriptorSets[specularIndex];
+				VkDescriptorImageInfo diinfo = {
+					gTextureSampler,
+					gSpecularTextureViews[specularIndex],
+					gSpecularTextures[specularIndex].imageLayout
+				};
+				write_descriptorset.pImageInfo = &diinfo;
+				vkUpdateDescriptorSets(device, 1, &write_descriptorset, 0, nullptr);
+			}
 
+			// Create normal image view
+			if (normalIndex < gNormalTextures.size())
+			{
+				viewInfo.image = gNormalTextures[normalIndex].image;
+				viewInfo.format = gNormalTextures[normalIndex].imageFormat;
+				viewInfo.viewType = gNormalTextures[normalIndex].viewType;
+				viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				viewInfo.subresourceRange.layerCount = gNormalTextures[normalIndex].layerCount;
+				viewInfo.subresourceRange.levelCount = gNormalTextures[normalIndex].levelCount;
+				viewInfo.subresourceRange.baseMipLevel = 0;
+				viewInfo.subresourceRange.baseArrayLayer = 0;
+				viewInfo.pNext = nullptr;
+				VkResult vr = vkCreateImageView(device, &viewInfo, nullptr,
+					&(gNormalTextureViews[normalIndex]));
+				if (vr != VkResult::VK_SUCCESS)
+				{
+					std::cerr << "ERROR: LoadTextures - Failed to create Image view (" << normalIndex<< ")\n";
+					return false;
+				}
+
+				VkWriteDescriptorSet write_descriptorset = {};
+				write_descriptorset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				write_descriptorset.descriptorCount = 1;
+				write_descriptorset.dstArrayElement = 0;
+				write_descriptorset.dstBinding = 0;
+				write_descriptorset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				write_descriptorset.dstSet = gNormalTextureDescriptorSets[normalIndex];
+				VkDescriptorImageInfo diinfo = {
+					gTextureSampler,
+					gNormalTextureViews[normalIndex],
+					gNormalTextures[normalIndex].imageLayout
+				};
+				write_descriptorset.pImageInfo = &diinfo;
+				vkUpdateDescriptorSets(device, 1, &write_descriptorset, 0, nullptr);
+			}
 		}
 
 		// After loading all textures you don't need these anymore
@@ -968,14 +1187,14 @@ private:
 	}
 
 	KTX_error_code CreateTexture(const char* fileName, ktxTexture** kTexture, 
-		ktxVulkanDeviceInfo vlkDeviceInfo, unsigned& index, unsigned& maxLod)
+		ktxVulkanDeviceInfo vlkDeviceInfo,ktxVulkanTexture* destTexture, unsigned& index, unsigned& maxLod)
 	{
 		KTX_error_code ktxResult = ktxTexture_CreateFromNamedFile(fileName, KTX_TEXTURE_CREATE_NO_FLAGS, kTexture);
 		if (ktxResult != KTX_error_code::KTX_SUCCESS)
 			return ktxResult;
 
 		// This gets mad if you don't encode/save the .ktx file in a format Vulkan likes
-		ktxResult = ktxTexture_VkUploadEx(*kTexture, &vlkDeviceInfo, &(gDiffuseTextures[index]),
+		ktxResult = ktxTexture_VkUploadEx(*kTexture, &vlkDeviceInfo, destTexture,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -1036,9 +1255,18 @@ private:
 			vkDestroyBuffer(device, buffer, nullptr);
 		for (VkDeviceMemory& data : gMatrixData)
 			vkFreeMemory(device, data, nullptr);
+
+		// Destroy Texture Resources
 		for (VkImageView& imageView : gDiffuseTextureViews)
 			vkDestroyImageView(device, imageView, nullptr);
+		for (VkImageView& imageView : gSpecularTextureViews)
+			vkDestroyImageView(device, imageView, nullptr);
 		for (ktxVulkanTexture& textureData : gDiffuseTextures)
+		{
+			vkFreeMemory(device, textureData.deviceMemory, nullptr);
+			vkDestroyImage(device, textureData.image, nullptr);
+		}
+		for (ktxVulkanTexture& textureData : gSpecularTextures)
 		{
 			vkFreeMemory(device, textureData.deviceMemory, nullptr);
 			vkDestroyImage(device, textureData.image, nullptr);

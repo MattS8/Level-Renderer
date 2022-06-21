@@ -57,6 +57,10 @@ StructuredBuffer<SHADER_MODEL_DATA> SceneData;
 Texture2D diffuseMap;
 [[vk::binding(0, 1)]]
 SamplerState qualityFilter;
+[[vk::binding(0, 2)]]
+Texture2D specularMap;
+[[vk::binding(0, 3)]]
+Texture2D normalMap;
 
 float4 main(PS_INPUT psInput) : SV_TARGET
 {

@@ -185,34 +185,7 @@ int LevelSelector::Parser::LoadMesh(std::string meshName)
 
 		h2bParser.model.instanceCount = 1;
 		
-		// Add up number of Diffuse, Specular, and Normal Materials
-		for (graphics::MATERIAL& mat : h2bParser.model.materials)
-		{
-			levelInfo.totalMaterialCount += 1;
-			if (mat.map_Kd != nullptr)
-			{
-				h2bParser.model.diffuseTextures.push_back(FormatTexturePath(mat.map_Kd));
-
-				h2bParser.model.materialInfo.diffuseCount += 1;
-				levelInfo.totalDiffuseCount += 1;
-			}
-			else
-				h2bParser.model.diffuseTextures.push_back("");
-			if (mat.map_Ks != nullptr)
-			{
-				h2bParser.model.materialInfo.specularCount += 1;
-				levelInfo.totalSpecularCount += 1;
-			}
-			else
-				h2bParser.model.specularTextures.push_back("");
-			if (mat.map_Ns != nullptr)
-			{
-				h2bParser.model.materialInfo.normalCount += 1;
-				levelInfo.totalNormalCount += 1;
-			}
-			else
-				h2bParser.model.normalTextures.push_back("");
-		}
+		ParseMaterials();
 
 		h2bParser.model.modelName = meshName;
 		models[meshName] = h2bParser.model;
@@ -281,6 +254,47 @@ int LevelSelector::Parser::LoadCamera(std::string cameraName)
 int LevelSelector::Parser::LoadLight(const char* lightFile)
 {
 	return LevelSelector::OK;
+}
+
+void LevelSelector::Parser::ParseMaterials()
+{
+	// Add up number of Diffuse, Specular, and Normal Materials
+	for (graphics::MATERIAL& mat : h2bParser.model.materials)
+	{
+		levelInfo.totalMaterialCount += 1;
+		// Check for Diffuse Map
+		if (mat.map_Kd != nullptr)
+		{
+			h2bParser.model.diffuseTextures.push_back(FormatTexturePath(mat.map_Kd));
+
+			h2bParser.model.materialInfo.diffuseCount += 1;
+			levelInfo.totalDiffuseCount += 1;
+		}
+		else
+			h2bParser.model.diffuseTextures.push_back("");
+
+		// Check for Specular Map
+		if (mat.map_Ks != nullptr)
+		{
+			h2bParser.model.specularTextures.push_back(FormatTexturePath(mat.map_Ks));
+
+			h2bParser.model.materialInfo.specularCount += 1;
+			levelInfo.totalSpecularCount += 1;
+		}
+		else
+			h2bParser.model.specularTextures.push_back("");
+
+		// Check for Normal Map
+		if (mat.map_Ns != nullptr)
+		{
+			h2bParser.model.normalTextures.push_back(FormatTexturePath(mat.map_Ns));
+
+			h2bParser.model.materialInfo.normalCount += 1;
+			levelInfo.totalNormalCount += 1;
+		}
+		else
+			h2bParser.model.normalTextures.push_back("");
+	}
 }
 
 // String Parsers
