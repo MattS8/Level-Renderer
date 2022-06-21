@@ -41,7 +41,7 @@ namespace LevelSelector
 	const int OK = 0;
 
 	extern const char* modelAssetPath;
-	extern const char* moelAssetExt;
+	extern const char* modelAssetExt;
 	extern const char* textureAssetPath;
 	extern const char* textureExt;
 
