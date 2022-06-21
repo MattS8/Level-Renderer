@@ -31,13 +31,28 @@ set (
 	"Shaders/PixelShader.hlsl"
 )
 
+# add support for ktx texture loading
+include_directories(${CMAKE_SOURCE_DIR}/ktx/include)
+
 if (WIN32)
+	# Find the libraries
+	find_library(KTX_LIB_D NAMES ktx PATHS ${CMAKE_SOURCE_DIR}/ktx/lib/win32/Debug)
+	find_library(KTX_READ_LIB_D NAMES ktx_read PATHS ${CMAKE_SOURCE_DIR}/ktx/lib/win32/Debug)
+	find_library(OBJUTIL_LIB_D NAMES objUtil PATHS ${CMAKE_SOURCE_DIR}/ktx/lib/win32/Debug)
+
+	find_library(KTX_LIB_R NAMES ktx PATHS ${CMAKE_SOURCE_DIR}/ktx/lib/win32/Release)
+	find_library(KTX_READ_LIB_R NAMES ktx_read PATHS ${CMAKE_SOURCE_DIR}/ktx/lib/win32/Release)
+	find_library(OBJUTIL_LIB_R NAMES objUtil PATHS ${CMAKE_SOURCE_DIR}/ktx/lib/win32/Release)
+
 	set_property(SOURCE ${shader_list} PROPERTY VS_SETTINGS "ExcludedFromBuild=true")	
 	# shaderc_combined.lib in Vulkan requires this for debug & release (runtime shader compiling)
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MD")
 	add_executable (Level_Renderer_Vulkan ${source_list} ${shader_list})
 	target_include_directories(Level_Renderer_Vulkan PUBLIC $ENV{VULKAN_SDK}/Include/)
 	target_link_directories(Level_Renderer_Vulkan PUBLIC $ENV{VULKAN_SDK}/Lib/)
+	target_link_libraries(Level_Renderer_Vulkan debug ${KTX_LIB_D} optimized ${KTX_LIB_R})
+	target_link_libraries(Level_Renderer_Vulkan debug ${KTX_READ_LIB_D} optimized ${KTX_READ_LIB_R})
+	target_link_libraries(Level_Renderer_Vulkan debug ${OBJUTIL_LIB_D} optimized ${OBJUTIL_LIB_R})
 
 	source_group("Shaders"		FILES file(${shader_list}))
 endif(WIN32)
