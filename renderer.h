@@ -2,6 +2,10 @@
 #include <cmath>
 #include "GraphicsObjects.h"
 #include "LevelSelector.h"
+#define KHRONOS_STATIC 
+#include "ktx.h"
+#include <ktxvulkan.h>
+
 #ifdef _WIN32 // must use MT platform DLL libraries on windows
 	#pragma comment(lib, "shaderc_combined.lib") 
 #endif
@@ -69,6 +73,20 @@ private:
 	};
 	
 #define MAX_SUBMESH_PER_DRAW 1024
+	struct VERTEX_SHADER_DATA
+	{
+		GW::MATH::GMATRIXF viewMatrix, projectionMatrix;
+		GW::MATH::GVECTORF cameraPos;
+		GW::MATH::GMATRIXF matrices[MAX_SUBMESH_PER_DRAW]; // world space transforms
+	};
+
+	struct PIXEL_SHADER_DATA
+	{
+		GW::MATH::GVECTORF lightDirection;
+		GW::MATH::GVECTORF lightColor; 
+		GW::MATH::GVECTORF ambientColor;
+	};
+
 	struct SHADER_MODEL_DATA
 	{
 		// globally shared model data
@@ -96,9 +114,32 @@ private:
 	VkDevice device = nullptr;
 	VkPhysicalDevice physicalDevice = nullptr;
 
-	// Storage Buffers
-	std::vector<VkBuffer> storageBuffers;
-	std::vector<VkDeviceMemory> storageData;
+	// Matrix Storage Buffers
+	std::vector<VkBuffer> gMatrixBuffers;
+	std::vector<VkDeviceMemory> gMatrixData;
+	std::vector<VkDescriptorSet> gMatrixDescriptorSets;
+	VkDescriptorSetLayout gVertexDescriptorLayout = nullptr;
+
+	/***************** KTX+VULKAN TEXTURING VARIABLES ******************/
+	#define DEFAULT_DIFFUSE_MAP  "../DefaultTextures/defaultDiffuse.ktx"
+	#define DEFAULT_SPECULAR_MAP "../DefaultTextures/defaultSpecular.ktx"
+	#define DEFAULT_NORMAL_MAP "../DefaultTextures/defaultNormal.ktx"
+
+	std::vector<ktxVulkanTexture> gDiffuseTextures; // one per texture
+	std::vector<VkImageView> gDiffuseTextureViews; // one per texture
+
+	VkSampler gTextureSampler = nullptr; // can be shared, effects quality & addressing mode
+
+	// note that unlike uniform buffers, we don't need one for each "in-flight" frame
+	std::vector<VkDescriptorSet> gDiffuseTextureDescriptorSets;
+
+	// be aware that all pipeline shaders share the same bind points
+	//VkDescriptorSetLayout gPixelDescriptorLayout = nullptr;
+
+	// textures can optionally share descriptor sets/pools/layouts with uniform & storage buffers	
+	VkDescriptorPool gDescriptorPool = nullptr;
+
+	/***************** ****************************** ******************/
 
 	VkShaderModule vertexShader = nullptr;
 	VkShaderModule pixelShader = nullptr;
@@ -107,9 +148,11 @@ private:
 	VkPipelineLayout pipelineLayout = nullptr;
 
 	// Descriptor Set Layout
-	VkDescriptorSetLayout descLayout = nullptr;
+	VkDescriptorSetLayout descriptorSetLayout_Vertex = nullptr;
+	VkDescriptorSetLayout descriptorSetLayout_Pixel = nullptr;
 	VkDescriptorSetLayoutCreateInfo descLayoutCreateInfo;
-	VkDescriptorSetLayoutBinding descLayoutBinding;
+	VkDescriptorSetLayoutBinding descriptorLayoutBinding_Vertex;
+	VkDescriptorSetLayoutBinding descriptorLayoutBinding_Pixel;
 
 	// Descriptor Set and Pool
 	VkDescriptorPool descPool;
@@ -130,6 +173,7 @@ private:
 
 	// Shader Model Data sent to GPU
 	SHADER_MODEL_DATA gShaderModelData;
+	//VERTEX_SHADER_DATA gVertexShaderData;
 
 	// Input Controls
 	GW::INPUT::GInput gInputProxy;
@@ -149,6 +193,7 @@ public:
 		Light _light = REND_DEFAULT_LIGHT) 
 			: win(_win), vlk(_vlk), gLight(_light)
 	{
+		VkResult res;
 		unsigned int width, height;
 		win.GetClientWidth(width);
 		win.GetClientHeight(height);
@@ -171,15 +216,17 @@ public:
 
 		unsigned int chainSwapCount;
 		vlk.GetSwapchainImageCount(chainSwapCount);
-		storageBuffers.resize(chainSwapCount);
-		storageData.resize(chainSwapCount);
+		gMatrixBuffers.resize(chainSwapCount);
+		gMatrixData.resize(chainSwapCount);
 		for (unsigned int i = 0; i < chainSwapCount; i++)
 		{
 			GvkHelper::create_buffer(physicalDevice, device, sizeof(SHADER_MODEL_DATA),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &storageBuffers[i], &storageData[i]);
+				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &gMatrixBuffers[i], &gMatrixData[i]);
 		}
 		WriteModelsToShaderData();
+		gDiffuseTextures.resize(gLevelSelector.levelParser.levelInfo.totalDiffuseCount);
+		gDiffuseTextureViews.resize(gLevelSelector.levelParser.levelInfo.totalDiffuseCount);
 
 		/***************** SHADER INTIALIZATION ******************/
 		// Initialize runtime shader compiler HLSL -> SPIRV
@@ -325,85 +372,124 @@ public:
 		dynamic_create_info.dynamicStateCount = 2;
 		dynamic_create_info.pDynamicStates = dynamic_state;
 
+		// Describes the order and type of resources bound to the vertex shader
+		
+		descriptorLayoutBinding_Vertex = {};
+		descriptorLayoutBinding_Vertex.binding = 0;
+		descriptorLayoutBinding_Vertex.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		descriptorLayoutBinding_Vertex.descriptorCount = 1;
+		descriptorLayoutBinding_Vertex.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		descriptorLayoutBinding_Vertex.pImmutableSamplers = nullptr;
+
+		// Create vertex shader layout
+		descLayoutCreateInfo = {};
+		descLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		descLayoutCreateInfo.bindingCount = 1;
+		descLayoutCreateInfo.pBindings = &descriptorLayoutBinding_Vertex;
+		descLayoutCreateInfo.pNext = nullptr;
+		descLayoutCreateInfo.flags = 0;
+
+		res = vkCreateDescriptorSetLayout(device, &descLayoutCreateInfo, nullptr, &descriptorSetLayout_Vertex);
+		if (res != VkResult::VK_SUCCESS)
 		{
-			descLayoutBinding = {};
-			descLayoutBinding.binding = 0;
-			descLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-			descLayoutBinding.descriptorCount = 1;
-			descLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-			descLayoutBinding.pImmutableSamplers = nullptr;
-
-			descLayoutCreateInfo = {};
-			descLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			descLayoutCreateInfo.bindingCount = 1;
-			descLayoutCreateInfo.pBindings = &descLayoutBinding;
-			descLayoutCreateInfo.pNext = nullptr;
-			descLayoutCreateInfo.flags = 0;
-
-			vkCreateDescriptorSetLayout(device, &descLayoutCreateInfo, nullptr, &descLayout);
+			std::cerr << "ERROR: Unable to create Vertex Layout Descriptor Set!\n";
+			return;
 		}
 
+		// Describes the order and type of resources bound to the pixel shader
+		descriptorLayoutBinding_Pixel = {};
+		descriptorLayoutBinding_Pixel.binding = 0;
+		descriptorLayoutBinding_Pixel.descriptorCount = 1;
+		descriptorLayoutBinding_Pixel.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descriptorLayoutBinding_Pixel.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		descriptorLayoutBinding_Pixel.pImmutableSamplers = nullptr;
+
+		// Pixel shader will have its own descriptor set layout
+		descLayoutCreateInfo.pBindings = &descriptorLayoutBinding_Pixel;
+		res = vkCreateDescriptorSetLayout(device, &descLayoutCreateInfo, nullptr, &descriptorSetLayout_Pixel);
+		if (res != VkResult::VK_SUCCESS)
 		{
-			descPoolSize = {};
-			descPoolSize.descriptorCount = chainSwapCount;
-			descPoolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-
-			descPoolCreateInfo = {};
-			descPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			descPoolCreateInfo.pNext = nullptr;
-			descPoolCreateInfo.flags = 0;
-			descPoolCreateInfo.maxSets = chainSwapCount;
-			descPoolCreateInfo.poolSizeCount = 1;
-			descPoolCreateInfo.pPoolSizes = &descPoolSize;
-
-			vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descPool);
+			std::cerr << "ERROR: Unable to create Pixel Layout Descriptor Set!\n";
+			return;
 		}
 
-		{
-			descSets.resize(chainSwapCount);
-			descSetAllocateInfo = {};
-			descSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descSetAllocateInfo.pNext = nullptr;
-			descSetAllocateInfo.descriptorPool = descPool;
-			descSetAllocateInfo.descriptorSetCount = 1;
-			descSetAllocateInfo.pSetLayouts = &descLayout;
+		// Descriptor Sets for Textures 
+		
+		// Create a descriptor pool!
+		// this is how many unique descriptor sets you want to allocate 
+		// we need one for each uniform buffer and one for each unique texture
+		unsigned int diffuseDescriptorCount = gLevelSelector.levelParser.levelInfo.totalDiffuseCount + 1;
+		unsigned int total_descriptorsets = gMatrixBuffers.size() + diffuseDescriptorCount;
+		VkDescriptorPoolSize descriptorPoolSize[2] = {
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gMatrixBuffers.size() },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, diffuseDescriptorCount}
+		};
 
-			for (int i = 0; i < chainSwapCount; i++)
-				vkAllocateDescriptorSets(device, &descSetAllocateInfo, &descSets[i]);
+		descPoolCreateInfo = {};
+		descPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		descPoolCreateInfo.flags = 0;
+		descPoolCreateInfo.maxSets = total_descriptorsets;
+		descPoolCreateInfo.poolSizeCount = 2;
+		descPoolCreateInfo.pPoolSizes = descriptorPoolSize;
+		descPoolCreateInfo.pNext = nullptr;
+		res = vkCreateDescriptorPool(device, &descPoolCreateInfo, nullptr, &descPool);
+		if (res != VkResult::VK_SUCCESS)
+		{
+			std::cerr << "ERROR: Unable to create descriptorPool!\n";
+			return;
 		}
 
+		// Create a descriptor sets for our diffuse textures!
+		
+		gDiffuseTextureDescriptorSets.resize(diffuseDescriptorCount);
+		VkDescriptorSetAllocateInfo descriptorsetAllocateInfo = {};
+		descriptorsetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		descriptorsetAllocateInfo.descriptorSetCount = 1;
+		descriptorsetAllocateInfo.pSetLayouts = &descriptorSetLayout_Pixel;
+		descriptorsetAllocateInfo.descriptorPool = descPool;
+		descriptorsetAllocateInfo.pNext = nullptr;
+		for (int i = 0; i < diffuseDescriptorCount; i++)
 		{
-			for (int i = 0; i < chainSwapCount; i++)
+			res = vkAllocateDescriptorSets(device, &descriptorsetAllocateInfo, &gDiffuseTextureDescriptorSets[i]);
+			if (res != VkResult::VK_SUCCESS)
 			{
-				VkDescriptorBufferInfo descBufferInfo = {};
-				descBufferInfo.buffer = storageBuffers[i];
-				descBufferInfo.offset = 0;
-				descBufferInfo.range = VK_WHOLE_SIZE;
-
-				VkWriteDescriptorSet writeDescSet = {};
-				writeDescSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				writeDescSet.pNext = nullptr;
-				writeDescSet.dstSet = descSets[i];
-				writeDescSet.dstBinding = 0;
-				writeDescSet.dstArrayElement = 0;
-				writeDescSet.descriptorCount = 1;
-				writeDescSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-				writeDescSet.pImageInfo = nullptr;
-				writeDescSet.pBufferInfo = &descBufferInfo;
-				writeDescSet.pTexelBufferView = nullptr;
-
-				vkUpdateDescriptorSets(device, 1, &writeDescSet, 0, nullptr);
+				std::cerr << "ERROR: Unable to allocate descriptorSets!\n";
+				return;
 			}
+		}
+
+		// Create descriptor sets for matrix Buffers
+		descriptorsetAllocateInfo.pSetLayouts = &descriptorSetLayout_Vertex;
+		VkWriteDescriptorSet writeDescriptorSet = {};
+		writeDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writeDescriptorSet.descriptorCount = 1;
+		writeDescriptorSet.dstArrayElement = 0;
+		writeDescriptorSet.dstBinding = 0;
+		writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		VkDescriptorBufferInfo descriptorBufferInfo = { nullptr, 0, VK_WHOLE_SIZE };
+		writeDescriptorSet.pBufferInfo = &descriptorBufferInfo;
+		gMatrixDescriptorSets.resize(chainSwapCount);
+		for (int i = 0; i < chainSwapCount; i++)
+		{
+			res = vkAllocateDescriptorSets(device, &descriptorsetAllocateInfo, &gMatrixDescriptorSets[i]);
+			if (res != VkResult::VK_SUCCESS)
+			{
+				std::cerr << "ERROR: Unable to allocate matrix descriptorSets!\n";
+				return;
+			}
+			writeDescriptorSet.dstSet = gMatrixDescriptorSets[i];
+			descriptorBufferInfo.buffer = gMatrixBuffers[i];
+			vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
 		}
 	
 		// Descriptor pipeline layout
 		VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
 		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		{
-			pipeline_layout_create_info.setLayoutCount = 1;
-			pipeline_layout_create_info.pSetLayouts = &descLayout;
-		}
-
+		pipeline_layout_create_info.setLayoutCount = 2;
+		VkDescriptorSetLayout layouts[2] = { descriptorSetLayout_Vertex, descriptorSetLayout_Pixel };
+		pipeline_layout_create_info.pSetLayouts = layouts;
+		
+		// Push Constant layout
 		VkPushConstantRange constantRange;
 		constantRange = {};
 		constantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -411,8 +497,8 @@ public:
 		constantRange.size = sizeof(PushConstants);
 		pipeline_layout_create_info.pushConstantRangeCount = 1;
 		pipeline_layout_create_info.pPushConstantRanges = &constantRange;
-		vkCreatePipelineLayout(device, &pipeline_layout_create_info, 
-			nullptr, &pipelineLayout);
+		vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &pipelineLayout);
+
 	    // Pipeline State... (FINALLY) 
 		VkGraphicsPipelineCreateInfo pipeline_create_info = {};
 		pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -432,6 +518,9 @@ public:
 		pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
 		vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, 
 			&pipeline_create_info, nullptr, &pipeline);
+		
+		// With pipeline created, lets load in our texture and bind it to our descriptor set
+		LoadDiffuseTextures();
 
 		/***************** CLEANUP / SHUTDOWN ******************/
 		// GVulkanSurface will inform us when to release any allocated resources
@@ -570,6 +659,7 @@ public:
 
 		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
 		gShaderModelData.viewMatrix = gMatrices.view;
+		//gVertexShaderData.viewMatrix = gMatrices.view;
 
 		timePoint = std::chrono::high_resolution_clock::now();
 	}
@@ -599,26 +689,48 @@ public:
 		GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
 			gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
 		gShaderModelData.projectionMatrix = gMatrices.projection;
+		//gVertexShaderData.projectionMatrix = gMatrices.projection;
 		
 		// now we can draw
 		unsigned int currentImageIndex;
 		vlk.GetSwapchainCurrentImage(currentImageIndex);
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-			0, 1, &descSets[currentImageIndex], 0, nullptr);
-		GvkHelper::write_to_buffer(device, storageData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 
+		// Bind Matrix Descriptor Sets to Vertex Shader
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+			0, 1, &gMatrixDescriptorSets[currentImageIndex], 0, nullptr);
+		GvkHelper::write_to_buffer(device, gMatrixData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 
 		VkDeviceSize offsets[] = { 0 };
-		PushConstants pushConstants = { 0, 0 };
-		unsigned int materialCount = 0;
+		PushConstants pushConstants = { 0, 0};
+
+		unsigned int diffuseOffset = 1;
+		unsigned int specularOffset = 1;
 		for (int i = 0; i < gObjects.size(); i++)
 		{
 			graphics::MODEL obj = gObjects[i];
 			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &(vkObjects[i].vertexHandle), offsets);
 			vkCmdBindIndexBuffer(commandBuffer, vkObjects[i].indexHandle, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
 			
+			// Reset offset counters
+			unsigned int tDiffuseCount = 0;
+			unsigned int tSpecularCount = 0;
+
+			// Loop through each submesh and bind textures/offsets
 			for (int j = 0; j < obj.meshCount; j++)
 			{
+				// Bind Diffuse Texture Descriptor Sets to Pixel Shader
+				if (obj.materialInfo.diffuseCount > tDiffuseCount)
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 1, 1,
+						&(gDiffuseTextureDescriptorSets[diffuseOffset++]), 0, nullptr);
+				else
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 1, 1,
+						&(gDiffuseTextureDescriptorSets[0]), 0, nullptr);
+
+				// TODO: Bind Specular Texture Descriptor Sets to Pixel Shader
+
+
 				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 					0, sizeof(PushConstants), &pushConstants);
 				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].drawInfo.indexCount, obj.instanceCount, 
@@ -626,15 +738,14 @@ public:
 				pushConstants.material_offset += 1;
 			}
 
-			materialCount += gObjects[i].materialCount;
-			pushConstants.matrix_offset += obj.instanceCount;
+			pushConstants.matrix_offset += obj.materialInfo.materialCount;
 		}
 	}
 
 	void CheckCommands()
 	{
 		float keyState;
-		gInputProxy.GetState(G_KEY_L, keyState);
+		gInputProxy.GetState(G_KEY_F1, keyState);
 		if (keyState > 0 && !gLevelSelector.IsCurrentlySelectingFile() && gLevelSelector.SelectNewLevel(false))
 		{
 			CleanUpVertexAndIndexBuffers();
@@ -714,6 +825,169 @@ private:
 		}
 	}
 
+	bool LoadDiffuseTextures()
+	{
+		VkQueue queue;
+		VkCommandPool commandPool;
+		VkPhysicalDevice physDevice;
+		vlk.GetGraphicsQueue((void**)&queue);
+		vlk.GetCommandPool((void**)&commandPool);
+		vlk.GetPhysicalDevice((void**)&physDevice);
+
+		// libktx, temporary variables
+		ktxTexture* kTexture;
+		KTX_error_code ktxResult;
+		ktxVulkanDeviceInfo vlkDeviceInfo;
+
+		// used to transfer texture CPU memory to GPU. just need one
+		ktxResult = ktxVulkanDeviceInfo_Construct(&vlkDeviceInfo, physDevice, device, queue, commandPool, nullptr);
+		if (ktxResult != KTX_error_code::KTX_SUCCESS)
+			return false;
+
+		// load all textures into CPU memory from file first
+		unsigned int totalDiffuseCount = gLevelSelector.levelParser.levelInfo.totalDiffuseCount + 1;
+		gDiffuseTextures.resize(totalDiffuseCount);
+		gDiffuseTextureViews.resize(totalDiffuseCount);
+		unsigned index = 0;
+		unsigned maxLod = 0;
+
+		ktxResult = CreateTexture(DEFAULT_DIFFUSE_MAP, &kTexture, vlkDeviceInfo, index, maxLod);
+		if (ktxResult != KTX_error_code::KTX_SUCCESS)
+		{
+			std::cerr << "ERROR: LoadTextures - failed to load default diffuse map!\n";
+			return false;
+		}
+
+		for (auto graphicsObject : gObjects)
+		{
+			for (graphics::MATERIAL& mat : graphicsObject.materials)
+			{
+				if (mat.map_Kd != nullptr)
+				{
+					ktxResult = CreateTexture(mat.map_Kd, &kTexture, vlkDeviceInfo, index, maxLod);
+					if (ktxResult != KTX_error_code::KTX_SUCCESS)
+					{
+						std::cerr << "ERROR: LoadTextures - failed to load diffuse map (" << mat.map_Kd << ")\n";
+						return false;
+					}
+				}
+			}
+		}
+
+		// Error check, ensure proper number of diffuse maps were read in.
+		if (index != totalDiffuseCount)
+		{
+			std::cerr << "ERR: LoadTextures - diffuseMap count mismatch! (" << index <<
+				" vs excepted " << gLevelSelector.levelParser.levelInfo.totalDiffuseCount << ")\n";
+			return false;
+		}
+
+		// Create the sampler
+		VkSamplerCreateInfo samplerInfo = {};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.flags = 0;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER; // REPEAT IS COMMON
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.mipLodBias = 0;
+		samplerInfo.minLod = 0;
+		samplerInfo.maxLod = maxLod;
+		samplerInfo.anisotropyEnable = VK_FALSE;
+		samplerInfo.maxAnisotropy = 1.0;
+		samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+		samplerInfo.compareEnable = VK_FALSE;
+		samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+		samplerInfo.unnormalizedCoordinates = VK_FALSE;
+		samplerInfo.pNext = nullptr;
+
+		VkResult vr = vkCreateSampler(device, &samplerInfo, nullptr, &gTextureSampler);
+		if (vr != VkResult::VK_SUCCESS)
+		{
+			std::cerr << "ERROR: LoadTextures - Failed to create sampler!\n";
+			return false;
+		}
+
+		// Then create image views for diffuse textures
+		for (index = 0; index < gDiffuseTextures.size(); index++)
+		{
+			// Textures are not directly accessed by the shaders and are abstracted
+			// by image views containing additional information and sub resource ranges.
+			VkImageViewCreateInfo viewInfo = {};
+			// Set the non-default values.
+			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			viewInfo.flags = 0;
+			viewInfo.components = {
+				VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
+				VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A
+			};
+			viewInfo.image = gDiffuseTextures[index].image;
+			viewInfo.format = gDiffuseTextures[index].imageFormat;
+			viewInfo.viewType = gDiffuseTextures[index].viewType;
+			viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			viewInfo.subresourceRange.layerCount = gDiffuseTextures[index].layerCount;
+			viewInfo.subresourceRange.levelCount = gDiffuseTextures[index].levelCount;
+			viewInfo.subresourceRange.baseMipLevel = 0;
+			viewInfo.subresourceRange.baseArrayLayer = 0;
+			viewInfo.pNext = nullptr;
+			VkResult vr = vkCreateImageView(device, &viewInfo, nullptr, &(gDiffuseTextureViews[index]));
+			if (vr != VkResult::VK_SUCCESS)
+			{
+				std::cerr << "ERROR: LoadTextures - Failed to create Image view (" << index << ")\n";
+				return false;
+			}
+
+			VkWriteDescriptorSet write_descriptorset = {};
+			write_descriptorset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write_descriptorset.descriptorCount = 1;
+			write_descriptorset.dstArrayElement = 0;
+			write_descriptorset.dstBinding = 1;
+			write_descriptorset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			write_descriptorset.dstSet = gDiffuseTextureDescriptorSets[index];
+			VkDescriptorImageInfo diinfo = {
+				gTextureSampler,
+				gDiffuseTextureViews[index],
+				gDiffuseTextures[index].imageLayout
+			};
+			write_descriptorset.pImageInfo = &diinfo;
+			vkUpdateDescriptorSets(device, 1, &write_descriptorset, 0, nullptr);
+
+
+		}
+
+		// After loading all textures you don't need these anymore
+		ktxTexture_Destroy(kTexture);
+		ktxVulkanDeviceInfo_Destruct(&vlkDeviceInfo);
+
+		return true;
+	}
+
+	KTX_error_code CreateTexture(const char* fileName, ktxTexture** kTexture, 
+		ktxVulkanDeviceInfo vlkDeviceInfo, unsigned& index, unsigned& maxLod)
+	{
+		KTX_error_code ktxResult = ktxTexture_CreateFromNamedFile(fileName, KTX_TEXTURE_CREATE_NO_FLAGS, kTexture);
+		if (ktxResult != KTX_error_code::KTX_SUCCESS)
+			return ktxResult;
+
+		// This gets mad if you don't encode/save the .ktx file in a format Vulkan likes
+		ktxResult = ktxTexture_VkUploadEx(*kTexture, &vlkDeviceInfo, &(gDiffuseTextures[index]),
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		if (ktxResult != KTX_error_code::KTX_SUCCESS)
+			return ktxResult;
+
+		if (gDiffuseTextures[index].levelCount > maxLod)
+			maxLod = gDiffuseTextures[index].levelCount;
+
+		// Increment index to the next diffuse texture location
+		++index;
+
+		return KTX_error_code::KTX_SUCCESS;
+	}
+
 	void WriteModelsToShaderData()
 	{
 		unsigned int matrixOffset = 0;
@@ -727,14 +1001,14 @@ private:
 			matrixOffset += obj.instanceCount;
 
 			// Copy materials
-			for (int j = 0; j < obj.materialCount; j++)
+			for (int j = 0; j < obj.materialInfo.materialCount; j++)
 			{
 				memcpy(&(gShaderModelData.materials[materialOffset + j]), &(obj.materials[j].attrib), sizeof(graphics::ATTRIBUTES));
 			}
-			materialOffset += obj.materialCount;
+			materialOffset += obj.materialInfo.materialCount;
 		}
 
-		//GvkHelper::write_to_buffer(device, storageData[index], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
+		//GvkHelper::write_to_buffer(device, gMatrixData[index], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 	}
 
 	void CleanUpVertexAndIndexBuffers()
@@ -755,14 +1029,24 @@ private:
 	{
 		CleanUpVertexAndIndexBuffers();
 		
-		for (VkBuffer& buffer : storageBuffers)
+		for (VkBuffer& buffer : gMatrixBuffers)
 			vkDestroyBuffer(device, buffer, nullptr);
-		for (VkDeviceMemory& data : storageData)
+		for (VkDeviceMemory& data : gMatrixData)
 			vkFreeMemory(device, data, nullptr);
+		for (VkImageView& imageView : gDiffuseTextureViews)
+			vkDestroyImageView(device, imageView, nullptr);
+		for (ktxVulkanTexture& textureData : gDiffuseTextures)
+		{
+			vkFreeMemory(device, textureData.deviceMemory, nullptr);
+			vkDestroyImage(device, textureData.image, nullptr);
+		}
+		
 
 		vkDestroyShaderModule(device, vertexShader, nullptr);
 		vkDestroyShaderModule(device, pixelShader, nullptr);
-		vkDestroyDescriptorSetLayout(device, descLayout, nullptr);
+		vkDestroyDescriptorSetLayout(device, descriptorSetLayout_Vertex, nullptr);
+		vkDestroyDescriptorSetLayout(device, descriptorSetLayout_Pixel, nullptr);
+		vkDestroySampler(device, gTextureSampler, nullptr);
 		vkDestroyDescriptorPool(device, descPool, nullptr);
 		
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);

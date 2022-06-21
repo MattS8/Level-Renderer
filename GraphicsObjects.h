@@ -46,12 +46,20 @@ namespace graphics {
 		unsigned materialIndex;
 	};
 
+	struct MATERIAL_INFO
+	{
+		unsigned materialCount = 0;
+		unsigned diffuseCount = 0;
+		unsigned specularCount = 0;
+		unsigned normalCount = 0;
+	};
+
 	struct MODEL {
+		MATERIAL_INFO materialInfo;
 		std::string modelName;
-		unsigned vertexCount;
-		unsigned indexCount;
-		unsigned materialCount;
-		unsigned meshCount;
+		unsigned vertexCount = 0;
+		unsigned indexCount = 0;
+		unsigned meshCount = 0;
 		unsigned instanceCount;
 		std::vector<graphics::VERTEX> vertices;
 		std::vector<unsigned> indices;
@@ -68,6 +76,14 @@ namespace graphics {
 			batches.clear();
 			meshes.clear();
 		}
+	};
+
+	struct LEVEL_INFO
+	{
+		unsigned totalMaterialCount;
+		unsigned totalDiffuseCount;
+		unsigned totalSpecularCount;
+		unsigned totalNormalCount;
 	};
 
 	struct LIGHT

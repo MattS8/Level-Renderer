@@ -25,6 +25,13 @@ struct SHADER_MODEL_DATA
     OBJ_ATTRIBUTES materials[MAX_INSTANCE_PER_DRAW];
 };
 
+struct PIXEL_SHADER_DATA
+{
+    float4 lightDirection;
+    float4 lightColor;
+    float4 ambientColor;
+};
+
 [[vk::push_constant]]
 cbuffer MESH_INDEX
 {
@@ -40,7 +47,16 @@ struct PS_INPUT
     float3 uvw : UVW;
 };
 
+[[vk::binding(0, 0)]]
 StructuredBuffer<SHADER_MODEL_DATA> SceneData;
+
+//[[vk::binding(0, 0)]]
+//StructuredBuffer<PIXEL_SHADER_DATA> SceneData;
+
+[[vk::binding(0, 1)]]
+Texture2D diffuseMap;
+[[vk::binding(0, 1)]]
+SamplerState qualityFilter;
 
 float4 main(PS_INPUT psInput) : SV_TARGET
 {
@@ -56,14 +72,6 @@ float4 main(PS_INPUT psInput) : SV_TARGET
     float lightAmount = saturate(dot(-normalize(SceneData[0].lightDirection), normalize(psInput.nrmW)));
 	
 	// Ambient Lighting
-	//float fullAmount = lightAmount;
-	//	fullAmount += SceneData[0].ambientColor.x;
-	//	fullAmount += SceneData[0].ambientColor.y;
-	//	fullAmount += SceneData[0].ambientColor.z;
-	//	fullAmount += SceneData[0].ambientColor.w;
-
-	//float fullAmount = saturate(lightAmount + SceneData[0].ambientColor);
-
     float3 fullAmount;
     fullAmount.x = SceneData[0].ambientColor.x + lightAmount;
     fullAmount.y = SceneData[0].ambientColor.y + lightAmount;

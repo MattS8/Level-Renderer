@@ -27,7 +27,18 @@ struct SHADER_MODEL_DATA
     OBJ_ATTRIBUTES materials[MAX_INSTANCE_PER_DRAW];
 };
 
+//struct VERTEX_SHADER_DATA
+//{
+//    matrix viewMatrix, projectionMatrix;
+//    float4 cameraPos;
+//    matrix matrices[MAX_INSTANCE_PER_DRAW]; // world space transforms
+//};
+
+[[vk::binding(0, 0)]]
 StructuredBuffer<SHADER_MODEL_DATA> SceneData;
+
+//[[vk::binding(0, 0)]]
+//StructuredBuffer<VERTEX_SHADER_DATA>SceneData;
 
 [[vk::push_constant]]
 cbuffer MESH_INDEX

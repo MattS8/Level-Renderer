@@ -26,14 +26,14 @@ namespace H2B {
 				return false;
 			file.read(reinterpret_cast<char*>(&model.vertexCount), 4);
 			file.read(reinterpret_cast<char*>(&model.indexCount), 4);
-			file.read(reinterpret_cast<char*>(&model.materialCount), 4);
+			file.read(reinterpret_cast<char*>(&model.materialInfo.materialCount), 4);
 			file.read(reinterpret_cast<char*>(&model.meshCount), 4);
 			model.vertices.resize(model.vertexCount);
 			file.read(reinterpret_cast<char*>(model.vertices.data()), 36 * model.vertexCount);
 			model.indices.resize(model.indexCount);
 			file.read(reinterpret_cast<char*>(model.indices.data()), 4 * model.indexCount);
-			model.materials.resize(model.materialCount);
-			for (int i = 0; i < model.materialCount; ++i) {
+			model.materials.resize(model.materialInfo.materialCount);
+			for (int i = 0; i < model.materialInfo.materialCount; ++i) {
 				file.read(reinterpret_cast<char*>(&model.materials[i].attrib), 80);
 				for (int j = 0; j < 10; ++j) {
 					buffer[0] = '\0';
@@ -45,8 +45,8 @@ namespace H2B {
 					}
 				}
 			}
-			model.batches.resize(model.materialCount);
-			file.read(reinterpret_cast<char*>(model.batches.data()), 8 * model.materialCount);
+			model.batches.resize(model.materialInfo.materialCount);
+			file.read(reinterpret_cast<char*>(model.batches.data()), 8 * model.materialInfo.materialCount);
 			model.meshes.resize(model.meshCount);
 			for (int i = 0; i < model.meshCount; ++i) {
 				buffer[0] = '\0';
