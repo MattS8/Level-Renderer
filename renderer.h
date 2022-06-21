@@ -127,11 +127,14 @@ private:
 
 	std::vector<ktxVulkanTexture> gDiffuseTextures; // one per texture
 	std::vector<VkImageView> gDiffuseTextureViews; // one per texture
+	std::vector<ktxVulkanTexture> gSpecularTextures; // one per texture
+	std::vector<VkImageView> gSpecularTextureViews; // one per texture
 
 	VkSampler gTextureSampler = nullptr; // can be shared, effects quality & addressing mode
 
 	// note that unlike uniform buffers, we don't need one for each "in-flight" frame
 	std::vector<VkDescriptorSet> gDiffuseTextureDescriptorSets;
+	std::vector<VkDescriptorSet> gSpecularTextureDescriptorSets;
 
 	// be aware that all pipeline shaders share the same bind points
 	//VkDescriptorSetLayout gPixelDescriptorLayout = nullptr;
@@ -156,7 +159,6 @@ private:
 
 	// Descriptor Set and Pool
 	VkDescriptorPool descPool;
-	std::vector<VkDescriptorSet> descSets;
 	VkDescriptorPoolCreateInfo descPoolCreateInfo;
 	VkDescriptorPoolSize descPoolSize;
 
@@ -857,17 +859,18 @@ private:
 			std::cerr << "ERROR: LoadTextures - failed to load default diffuse map!\n";
 			return false;
 		}
-
+		ktxTexture* kTexture2;
 		for (auto graphicsObject : gObjects)
 		{
-			for (graphics::MATERIAL& mat : graphicsObject.materials)
+			for (int i = 0; i < graphicsObject.materials.size(); i++)
 			{
-				if (mat.map_Kd != nullptr)
+				std::string diffuseTextureStr = graphicsObject.diffuseTextures[i];
+				if (diffuseTextureStr.compare("") != 0)
 				{
-					ktxResult = CreateTexture(mat.map_Kd, &kTexture, vlkDeviceInfo, index, maxLod);
+					ktxResult = CreateTexture(diffuseTextureStr.c_str(), &kTexture2, vlkDeviceInfo, index, maxLod);
 					if (ktxResult != KTX_error_code::KTX_SUCCESS)
 					{
-						std::cerr << "ERROR: LoadTextures - failed to load diffuse map (" << mat.map_Kd << ")\n";
+						std::cerr << "ERROR: LoadTextures - failed to load diffuse map (" << diffuseTextureStr << ")\n";
 						return false;
 					}
 				}
@@ -943,7 +946,7 @@ private:
 			write_descriptorset.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			write_descriptorset.descriptorCount = 1;
 			write_descriptorset.dstArrayElement = 0;
-			write_descriptorset.dstBinding = 1;
+			write_descriptorset.dstBinding = 0;
 			write_descriptorset.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			write_descriptorset.dstSet = gDiffuseTextureDescriptorSets[index];
 			VkDescriptorImageInfo diinfo = {

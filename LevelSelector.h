@@ -65,8 +65,9 @@ namespace LevelSelector
 		int ParseMatrix(GW::MATH::GMATRIXF& matrix);
 		int ParseMatrixLine(GW::MATH::GMATRIXF& matrix, int offset);
 
-		// Name Parser
+		// String Parser
 		std::string GetMeshNameFromLine();
+		std::string FormatTexturePath(const char* filePath);
 
 	public:
 		std::unordered_map<std::string, graphics::MODEL> models;

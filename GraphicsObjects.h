@@ -64,6 +64,9 @@ namespace graphics {
 		std::vector<graphics::VERTEX> vertices;
 		std::vector<unsigned> indices;
 		std::vector<graphics::MATERIAL> materials;
+		std::vector<std::string> diffuseTextures;
+		std::vector<std::string> specularTextures;
+		std::vector<std::string> normalTextures;
 		std::vector<graphics::BATCH> batches;
 		std::vector<graphics::MESH> meshes;
 		std::vector<GW::MATH::GMATRIXF> worldMatrices;

@@ -191,21 +191,27 @@ int LevelSelector::Parser::LoadMesh(std::string meshName)
 			levelInfo.totalMaterialCount += 1;
 			if (mat.map_Kd != nullptr)
 			{
-				mat.map_Kd = FormatTexturePath(mat.map_Kd).c_str();
+				h2bParser.model.diffuseTextures.push_back(FormatTexturePath(mat.map_Kd));
 
 				h2bParser.model.materialInfo.diffuseCount += 1;
 				levelInfo.totalDiffuseCount += 1;
 			}
+			else
+				h2bParser.model.diffuseTextures.push_back("");
 			if (mat.map_Ks != nullptr)
 			{
 				h2bParser.model.materialInfo.specularCount += 1;
 				levelInfo.totalSpecularCount += 1;
 			}
+			else
+				h2bParser.model.specularTextures.push_back("");
 			if (mat.map_Ns != nullptr)
 			{
 				h2bParser.model.materialInfo.normalCount += 1;
 				levelInfo.totalNormalCount += 1;
 			}
+			else
+				h2bParser.model.normalTextures.push_back("");
 		}
 
 		h2bParser.model.modelName = meshName;
@@ -287,16 +293,22 @@ std::string LevelSelector::Parser::GetMeshNameFromLine()
 		: std::string(line2Parse);
 }
 
-std::string FormatTexturePath(const char* filePath)
+std::string LevelSelector::Parser::FormatTexturePath(const char* filePath)
 {
-	std::string formattedPath(filePath);
-	int relativePathLocation = formattedPath.find_last_of('\\');
+	std::string formattedName(filePath);
+	int relativePathLocation = formattedName.find_last_of('/');
 	if (relativePathLocation != std::string::npos)
 	{
-		formattedPath = formattedPath.substr(relativePathLocation);
+		formattedName = formattedName.substr(relativePathLocation+1);
 	}
 
-	return formattedPath;
+	int extensionLocation = formattedName.find_last_of('.');
+	if (extensionLocation != std::string::npos)
+	{
+		formattedName = formattedName.substr(0, extensionLocation) + LevelSelector::textureExt;
+	}
+
+	return std::string(LevelSelector::textureAssetPath + formattedName);
 }
 
 // Error Functions

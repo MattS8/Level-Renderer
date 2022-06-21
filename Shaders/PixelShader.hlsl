@@ -94,6 +94,8 @@ float4 main(PS_INPUT psInput) : SV_TARGET
     float3 reflectedLight = SceneData[0].lightColor * SceneData[0].materials[material_offset].Ks * intensity;
 	
     float3 totalLight = litColor + reflectedLight + SceneData[0].materials[material_offset].Ke;
+    float4 finalColor = float4(totalLight, 1);
+    finalColor *= diffuseMap.Sample(qualityFilter, psInput.uvw);
+    return finalColor;
 
-    return float4(totalLight, 1);
 }
