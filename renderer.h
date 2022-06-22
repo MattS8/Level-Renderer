@@ -793,7 +793,7 @@ public:
 				else
 					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 						pipelineLayout, 3, 1,
-						&(gSpecularTextureDescriptorSets[0]), 0, nullptr);
+						&(gNormalTextureDescriptorSets[0]), 0, nullptr);
 
 				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 					0, sizeof(PushConstants), &pushConstants);
