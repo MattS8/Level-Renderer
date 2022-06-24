@@ -63,6 +63,8 @@ Texture2D specularMap;
 SamplerState specQualityFilter;
 [[vk::binding(0, 3)]]
 Texture2D normalMap;
+[[vk::binding(0, 3)]]
+SamplerState normQualityFilter;
 
 //Tangentless normal mapping (http://www.thetenthplanet.de) - Magic
 float3x3 cotangent_frame(float3 normalVec, float3 pixelVec, float2 uv)
@@ -87,7 +89,7 @@ float3x3 cotangent_frame(float3 normalVec, float3 pixelVec, float2 uv)
 
 float3 perturb_normal(float3 normalVec, float3 viewVec, float2 uv)
 {
-    float3 normMap = normalMap.Sample(qualityFilter, uv);
+    float3 normMap = normalMap.Sample(normQualityFilter, uv);
     float MAX_CHANNEL_VAL = 255.0f;
     float HALF_CHANNEL_VAL = 127.0f;
     
@@ -106,21 +108,21 @@ float4 main(PS_INPUT psInput) : SV_Target
     float4 textureColor = diffuseMap.Sample(qualityFilter, psInput.uvw.xy);
     
     // Sample specular texture pixel
-    float4 specularColor = specularMap.Sample(qualityFilter, psInput.uvw.xy);
+    float4 specularColor = specularMap.Sample(specQualityFilter, psInput.uvw.xy);
     
     // Get view direction for normal calcs
     float3 viewDirection = normalize(SceneData[0].cameraPos.xyz - psInput.posW);
   
-    // Find perturb normal for tangentless normals
-    float3 normal = perturb_normal(normalize(psInput.nrmW), viewDirection, psInput.uvw.xy);
-    
     float3 worldNormalized = normalize(psInput.nrmW);
     
+    // Find perturb normal for tangentless normals
+    float3 normal = perturb_normal(worldNormalized, viewDirection, psInput.uvw.xy);
+    
     // Directional Lighting
-    float directionalLighting = saturate(dot(-normalize(SceneData[0].lightDirection.xyz), worldNormalized));
+    float directionalLighting = saturate(dot(-normalize(SceneData[0].lightDirection.xyz), normal));
     
     // Ambient Lighting
-    float ambientLighting = saturate(SceneData[0].ambientColor.xyz + directionalLighting);
+    float3 ambientLighting = saturate(SceneData[0].ambientColor.xyz + directionalLighting);
     
     // Specular
     float3 halfVec = normalize(-normalize(SceneData[0].lightDirection.xyz) + viewDirection);
@@ -128,6 +130,7 @@ float4 main(PS_INPUT psInput) : SV_Target
     float3 reflectedLight = SceneData[0].lightColor.xyz * SceneData[0].materials[material_offset].Ks * intensity * specularColor.xyz;
 
     float3 diffuseReflectivity = SceneData[0].materials[material_offset].Kd;
+    
     float3 emmisiveReflectivity = SceneData[0].materials[material_offset].Ke;
     
     return float4(textureColor.xyz * diffuseReflectivity * ambientLighting + reflectedLight + emmisiveReflectivity, 1);
@@ -142,9 +145,14 @@ float4 main(PS_INPUT psInput) : SV_Target
 //	//	lightColor[0] = SceneData[0].ambientColor[1] + lightRatio;
 //	//float3 resultColor = mul(saturate(lightColor), SceneData[0].materials[material_offset].Kd);
 
-	
+//    // Get view direction for normal calcs
+//    float3 viewDirection = normalize(SceneData[0].cameraPos - psInput.posW);
+    
+//	// Find perturb normal for tangentless normals
+//    float3 normal = perturb_normal(normalize(psInput.nrmW), viewDirection, psInput.uvw.xy);
+    
 //	// Directional Lighting
-//    float lightAmount = saturate(dot(-normalize(SceneData[0].lightDirection), normalize(psInput.nrmW)));
+//    float lightAmount = saturate(dot(-normalize(SceneData[0].lightDirection), normal));
 	
 //	// Ambient Lighting
 //    float3 fullAmount;
@@ -160,8 +168,7 @@ float4 main(PS_INPUT psInput) : SV_Target
 //    litColor.y *= fullAmount.y;
 //    litColor.z *= fullAmount.z;
 
-//    float3 worldPos = psInput.posW;
-//    float3 viewDirection = normalize(SceneData[0].cameraPos - worldPos);
+
 //    float3 halfVec = normalize(-normalize(SceneData[0].lightDirection) + viewDirection);
 //    float intensity = max(pow(saturate(dot(normalize(psInput.nrmW), halfVec)), SceneData[0].materials[material_offset].Ns), 0);
 

@@ -102,7 +102,7 @@ private:
 	// Defaults
 	graphics::CAMERA DefaultCamera;
 	//#define REND_DEFAULT_CAMERA { { 0.75f, 0.25f, -1.5f, 1.0f }, { 0.15f, 0.75f, 0.0f, 1.0f }, G_DEGREE_TO_RADIAN(65), 0.1f, 100 }
-	#define REND_DEFAULT_LIGHT { {-1.0f, -1.0f, 2.0f, 1.0f}, { 0.6f, 0.9f, 1.0f, 1.0f } }
+	//#define REND_DEFAULT_LIGHT { {-1.0f, -1.0f, 2.0f, 9.0f}, { 0.6f, 0.9f, 1.0f, 1.0f } }
 
 	// proxy handles
 	GW::SYSTEM::GWindow win;
@@ -121,9 +121,9 @@ private:
 	VkDescriptorSetLayout gVertexDescriptorLayout = nullptr;
 
 	/***************** KTX+VULKAN TEXTURING VARIABLES ******************/
-	#define DEFAULT_DIFFUSE_MAP  "../DefaultTextures/defaultDiffuse.ktx"
-	#define DEFAULT_SPECULAR_MAP "../DefaultTextures/defaultSpecular.ktx"
-	#define DEFAULT_NORMAL_MAP "../DefaultTextures/defaultNormal.ktx"
+	#define DEFAULT_DIFFUSE_MAP  "../Assets/Textures/defaultDiffuse.ktx"
+	#define DEFAULT_SPECULAR_MAP "../Assets/Textures/defaultSpecular.ktx"
+	#define DEFAULT_NORMAL_MAP "../Assets/Textures/defaultNormal.ktx"
 
 	std::vector<ktxVulkanTexture> gDiffuseTextures; // one per texture
 	std::vector<VkImageView> gDiffuseTextureViews; // one per texture
@@ -138,9 +138,6 @@ private:
 	std::vector<VkDescriptorSet> gDiffuseTextureDescriptorSets;
 	std::vector<VkDescriptorSet> gSpecularTextureDescriptorSets;
 	std::vector<VkDescriptorSet> gNormalTextureDescriptorSets;
-
-	// be aware that all pipeline shaders share the same bind points
-	//VkDescriptorSetLayout gPixelDescriptorLayout = nullptr;
 
 	// textures can optionally share descriptor sets/pools/layouts with uniform & storage buffers	
 	VkDescriptorPool gDescriptorPool = nullptr;
@@ -184,19 +181,59 @@ private:
 	GW::INPUT::GInput gInputProxy;
 	GW::INPUT::GController gControllerProxy;
 	GW::INPUT::GBufferedInput gBufferedInputProxy;
+
 public:
 	struct InputModifiers
 	{
 		float CameraSpeed;
 		float LookSensitivity;
+		float LightMovementSpeed;
 	};
 	InputModifiers inputModifiers;
 	float maxCameraSpeed, minCameraSpeed;
 	float maxSensitivity, minSensitivity;
+	float maxLightMovementSpeed, minLightMovementSpeed;
 
 	Renderer(GW::SYSTEM::GWindow _win, GW::GRAPHICS::GVulkanSurface _vlk,
 		Light _light = REND_DEFAULT_LIGHT) 
 			: win(_win), vlk(_vlk), gLight(_light)
+	{
+		ConstructRenderer();
+	}
+
+
+	void CreateVertexShader(shaderc_compiler_t& compiler, shaderc_compile_options_t& options)
+	{
+		// Create Vertex Shader
+		std::string vertexShaderStr = ShaderAsString(VERTEX_SHADER_PATH);
+		shaderc_compilation_result_t result = shaderc_compile_into_spv( // compile
+			compiler, vertexShaderStr.c_str(), vertexShaderStr.length(),
+			shaderc_vertex_shader, "main.vert", "main", options);
+		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) // errors?
+			std::cout << "Vertex Shader Errors: " << shaderc_result_get_error_message(result) << std::endl;
+		GvkHelper::create_shader_module(device, shaderc_result_get_length(result), // load into Vulkan
+			(char*)shaderc_result_get_bytes(result), &vertexShader);
+		shaderc_result_release(result); // done
+	}
+
+	void CreatePixelShader(shaderc_compiler_t& compiler, shaderc_compile_options_t& options)
+	{
+		// Create Pixel Shader
+		std::string pixelShaderStr = ShaderAsString(PIXEL_SHADER_PATH);
+		shaderc_compilation_result_t result = shaderc_compile_into_spv( // compile
+			compiler, pixelShaderStr.c_str(), pixelShaderStr.length(),
+			shaderc_fragment_shader, "main.frag", "main", options);
+		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) // errors?
+			std::cout << "Pixel Shader Errors: " << shaderc_result_get_error_message(result) << std::endl;
+		GvkHelper::create_shader_module(device, shaderc_result_get_length(result), // load into Vulkan
+			(char*)shaderc_result_get_bytes(result), &pixelShader);
+		shaderc_result_release(result); // done
+		// Free runtime shader compiler resources
+		shaderc_compile_options_release(options);
+		shaderc_compiler_release(compiler);
+	}
+
+	void ConstructRenderer(bool showLevelSelect = true)
 	{
 		VkResult res;
 		unsigned int width, height;
@@ -209,29 +246,19 @@ public:
 		gBufferedInputProxy.Create(win);
 
 		// Select initial level
-		gLevelSelector.SelectNewLevel(true);
+		if (showLevelSelect)
+			while (!gLevelSelector.SelectNewLevel(true))
+				;
 		gLevelSelector.ParseSelectedLevel();
 
 		/***************** GEOMETRY INTIALIZATION ******************/
 		// Grab the device & physical device so we can allocate some stuff
 		vlk.GetDevice((void**)&device);
 		vlk.GetPhysicalDevice((void**)&physicalDevice);
-		
+
 		ChangeLevel(gLevelSelector.levelParser.ModelsToVector(), gLevelSelector.levelParser.CamerasToVector());
 
-		unsigned int chainSwapCount;
-		vlk.GetSwapchainImageCount(chainSwapCount);
-		gMatrixBuffers.resize(chainSwapCount);
-		gMatrixData.resize(chainSwapCount);
-		for (unsigned int i = 0; i < chainSwapCount; i++)
-		{
-			GvkHelper::create_buffer(physicalDevice, device, sizeof(SHADER_MODEL_DATA),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &gMatrixBuffers[i], &gMatrixData[i]);
-		}
-		WriteModelsToShaderData();
-		gDiffuseTextures.resize(gLevelSelector.levelParser.levelInfo.totalDiffuseCount);
-		gDiffuseTextureViews.resize(gLevelSelector.levelParser.levelInfo.totalDiffuseCount);
+		InitializeGeometry();
 
 		/***************** SHADER INTIALIZATION ******************/
 		// Initialize runtime shader compiler HLSL -> SPIRV
@@ -242,30 +269,9 @@ public:
 #ifndef NDEBUG
 		shaderc_compile_options_set_generate_debug_info(options);
 #endif
-		// Create Vertex Shader
-		std::string vertexShaderStr = ShaderAsString(VERTEX_SHADER_PATH);
-		shaderc_compilation_result_t result = shaderc_compile_into_spv( // compile
-			compiler, vertexShaderStr.c_str(), vertexShaderStr.length(),
-			shaderc_vertex_shader, "main.vert", "main", options);
-		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) // errors?
-			std::cout << "Vertex Shader Errors: " << shaderc_result_get_error_message(result) << std::endl;
-		GvkHelper::create_shader_module(device, shaderc_result_get_length(result), // load into Vulkan
-			(char*)shaderc_result_get_bytes(result), &vertexShader);
-		shaderc_result_release(result); // done
+		CreateVertexShader(compiler, options);
 
-		// Create Pixel Shader
-		std::string pixelShaderStr = ShaderAsString(PIXEL_SHADER_PATH);
-		result = shaderc_compile_into_spv( // compile
-			compiler, pixelShaderStr.c_str(), pixelShaderStr.length(),
-			shaderc_fragment_shader, "main.frag", "main", options);
-		if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) // errors?
-			std::cout << "Pixel Shader Errors: " << shaderc_result_get_error_message(result) << std::endl;
-		GvkHelper::create_shader_module(device, shaderc_result_get_length(result), // load into Vulkan
-			(char*)shaderc_result_get_bytes(result), &pixelShader);
-		shaderc_result_release(result); // done
-		// Free runtime shader compiler resources
-		shaderc_compile_options_release(options);
-		shaderc_compiler_release(compiler);
+		CreatePixelShader(compiler, options);
 
 		/***************** PIPELINE INTIALIZATION ******************/
 		// Create Pipeline & Layout (Thanks Tiny!)
@@ -306,9 +312,9 @@ public:
 		input_vertex_info.pVertexAttributeDescriptions = vertex_attribute_description;
 		// Viewport State (we still need to set this up even though we will overwrite the values)
 		VkViewport viewport = {
-            0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1
-        };
-        VkRect2D scissor = { {0, 0}, {width, height} };
+			0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1
+		};
+		VkRect2D scissor = { {0, 0}, {width, height} };
 		VkPipelineViewportStateCreateInfo viewport_create_info = {};
 		viewport_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 		viewport_create_info.viewportCount = 1;
@@ -368,7 +374,7 @@ public:
 		color_blend_create_info.blendConstants[2] = 0.0f;
 		color_blend_create_info.blendConstants[3] = 0.0f;
 		// Dynamic State 
-		VkDynamicState dynamic_state[2] = { 
+		VkDynamicState dynamic_state[2] = {
 			// By setting these we do not need to re-create the pipeline on Resize
 			VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR
 		};
@@ -378,7 +384,7 @@ public:
 		dynamic_create_info.pDynamicStates = dynamic_state;
 
 		// Describes the order and type of resources bound to the vertex shader
-		
+
 		descriptorLayoutBinding_Vertex = {};
 		descriptorLayoutBinding_Vertex.binding = 0;
 		descriptorLayoutBinding_Vertex.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -420,14 +426,461 @@ public:
 		}
 
 		// Descriptor Sets for Textures 
+		AllocateDescriptorSets();
+
+		// Descriptor pipeline layout
+		VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
+		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipeline_layout_create_info.setLayoutCount = 4;
+		VkDescriptorSetLayout layouts[4] = {
+			descriptorSetLayout_Vertex,
+			descriptorSetLayout_Pixel, descriptorSetLayout_Pixel, descriptorSetLayout_Pixel };
+		pipeline_layout_create_info.pSetLayouts = layouts;
+
+		// Push Constant layout
+		VkPushConstantRange constantRange;
+		constantRange = {};
+		constantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		constantRange.offset = 0;
+		constantRange.size = sizeof(PushConstants);
+		pipeline_layout_create_info.pushConstantRangeCount = 1;
+		pipeline_layout_create_info.pPushConstantRanges = &constantRange;
+		vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &pipelineLayout);
+
+		// Pipeline State... (FINALLY) 
+		VkGraphicsPipelineCreateInfo pipeline_create_info = {};
+		pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		pipeline_create_info.stageCount = 2;
+		pipeline_create_info.pStages = stage_create_info;
+		pipeline_create_info.pInputAssemblyState = &assembly_create_info;
+		pipeline_create_info.pVertexInputState = &input_vertex_info;
+		pipeline_create_info.pViewportState = &viewport_create_info;
+		pipeline_create_info.pRasterizationState = &rasterization_create_info;
+		pipeline_create_info.pMultisampleState = &multisample_create_info;
+		pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
+		pipeline_create_info.pColorBlendState = &color_blend_create_info;
+		pipeline_create_info.pDynamicState = &dynamic_create_info;
+		pipeline_create_info.layout = pipelineLayout;
+		pipeline_create_info.renderPass = renderPass;
+		pipeline_create_info.subpass = 0;
+		pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+		vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
+			&pipeline_create_info, nullptr, &pipeline);
+
+		// With pipeline created, lets load in our texture and bind it to our descriptor set
+		LoadTextures();
+
+		/***************** CLEANUP / SHUTDOWN ******************/
+		// GVulkanSurface will inform us when to release any allocated resources
+		shutdown.Create(vlk, [&]() {
+			if (+shutdown.Find(GW::GRAPHICS::GVulkanSurface::Events::RELEASE_RESOURCES, true)) {
+				CleanUp(); // unlike D3D we must be careful about destroy timing
+			}
+			});
+	}
+
+	void UpdateLight()
+	{
+		static std::chrono::steady_clock::time_point lightTimePoint = std::chrono::high_resolution_clock::now();
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float timePassed = std::chrono::duration<float, std::milli>(currentTime - lightTimePoint).count() / 1000; // Time in seconds	
+
+		float keyState;
+		float upVal = 0, downVal = 0, leftVal = 0, rightVal = 0, forwardVal = 0, backwardVal = 0;
 		
+		// Check forward
+		gInputProxy.GetState(G_KEY_NUMPAD_8, keyState);
+		forwardVal += keyState;
+		// Check backward
+		gInputProxy.GetState(G_KEY_NUMPAD_5, keyState);
+		backwardVal += keyState;
+		// Check Left
+		gInputProxy.GetState(G_KEY_NUMPAD_4, keyState);
+		leftVal += keyState;
+		// Check Right
+		gInputProxy.GetState(G_KEY_NUMPAD_6, keyState);
+		rightVal += keyState;
+		// Check up
+		gInputProxy.GetState(G_KEY_NUMPAD_ADD, keyState);
+		upVal += keyState;
+		// Check down
+		gInputProxy.GetState(G_KEY_NUMPAD_ENTER, keyState);
+		downVal += keyState;
+
+		gLight.Direction.x += (rightVal - leftVal) * timePassed * inputModifiers.LightMovementSpeed;
+		gLight.Direction.y += (downVal - upVal) * timePassed * inputModifiers.LightMovementSpeed;
+		gLight.Direction.z += (forwardVal - backwardVal) * timePassed * inputModifiers.LightMovementSpeed;
+
+		gInputProxy.GetState(G_KEY_NUMPAD_0, keyState);
+
+		// Reset Light Position
+		if (keyState > 0)
+		{
+			gLight.Direction.x = gLight.Direction.y = gLight.Direction.z = 3;
+		}
+
+		lightTimePoint = std::chrono::high_resolution_clock::now();
+	}
+
+	void UpdateCamera()
+	{
+		static std::chrono::steady_clock::time_point cameraTimePoint = std::chrono::high_resolution_clock::now();
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float timePassed = std::chrono::duration<float, std::milli>(currentTime - cameraTimePoint).count() / 1000; // Time in seconds																								 
+
+		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
+
+		float temp = 0;
+		GW::MATH::GVECTORF translationVector;
+		bool bControllerConnected;
+		gControllerProxy.IsConnected(0, bControllerConnected);
+
+		// Camera Speed
+		float scrollChange = 0.0f;
+
+		// Look Sensitivity
+
+
+		// y-axis Movement
+		float yChange = 0;
+		gInputProxy.GetState(G_KEY_SPACE, temp);
+		yChange += temp;
+		gInputProxy.GetState(G_KEY_LEFTSHIFT, temp);
+		yChange -= temp;
+		if (bControllerConnected)
+		{
+			gControllerProxy.GetState(0, G_RIGHT_TRIGGER_AXIS, temp);
+			yChange += temp;
+			gControllerProxy.GetState(0, G_LEFT_TRIGGER_AXIS, temp);
+			yChange -= temp;
+		}
+		yChange = yChange * inputModifiers.CameraSpeed * timePassed;
+		translationVector.x = translationVector.z = 0;
+		translationVector.w = 1;
+		translationVector.y = yChange;
+		GW::MATH::GMatrix::TranslateGlobalF(gMatrices.view, translationVector, gMatrices.view);
+
+		// x-axis Movement
+		float xChange = 0;
+		gInputProxy.GetState(G_KEY_D, temp);
+		xChange += temp;
+		gInputProxy.GetState(G_KEY_A, temp);
+		xChange -= temp;
+		if (bControllerConnected)
+		{
+			gControllerProxy.GetState(0, G_LX_AXIS, temp);
+			xChange += temp;
+		}
+		xChange = xChange * inputModifiers.CameraSpeed * timePassed;
+
+		// z-axis Movement
+		float zChange = 0;
+		gInputProxy.GetState(G_KEY_W, temp);
+		zChange += temp;
+		gInputProxy.GetState(G_KEY_S, temp);
+		zChange -= temp;
+		if (bControllerConnected)
+		{
+			gControllerProxy.GetState(0, G_LY_AXIS, temp);
+			zChange += temp;
+		}
+		zChange = zChange * inputModifiers.CameraSpeed * timePassed;
+
+		translationVector.x = xChange;
+		translationVector.z = zChange;
+		translationVector.y = 0;
+		translationVector.w = 1;
+		GW::MATH::GMatrix::TranslateLocalF(gMatrices.view, translationVector, gMatrices.view);
+
+		float thumbSpeed = inputModifiers.LookSensitivity * timePassed;
+		float mouseDelta[2];
+		unsigned int windowHeight;
+		win.GetHeight(windowHeight);
+		bool bRMBClicked = false;
+		gInputProxy.GetState(G_BUTTON_RIGHT, temp);
+		bRMBClicked = temp > 0;
+		bool bUpdatePitchAndYaw = gInputProxy.GetMouseDelta(mouseDelta[0], mouseDelta[1]) != GW::GReturn::REDUNDANT;
+		if (bRMBClicked && bUpdatePitchAndYaw)
+		{
+			float totalPitch = gCamera.FOV * mouseDelta[1] / windowHeight;
+			if (bControllerConnected)
+			{
+				gControllerProxy.GetState(0, G_RY_AXIS, temp);
+				totalPitch += temp;
+			}
+			totalPitch *= thumbSpeed;
+
+			GW::MATH::GMATRIXF pitchMatrix;
+			GW::MATH::GMatrix::IdentityF(pitchMatrix);
+			GW::MATH::GMatrix::RotateXGlobalF(pitchMatrix, totalPitch, pitchMatrix);
+			GW::MATH::GMatrix::MultiplyMatrixF(pitchMatrix, gMatrices.view, gMatrices.view);
+		}
+
+		unsigned int windowWidth;
+		win.GetWidth(windowWidth);
+
+		if (bRMBClicked && bUpdatePitchAndYaw)
+		{
+			float totalYaw = gCamera.FOV * gCamera.aspectRatio * mouseDelta[0] / windowWidth;
+			if (bControllerConnected)
+			{
+				gControllerProxy.GetState(0, G_RX_AXIS, temp);
+				totalYaw += temp;
+			}
+			totalYaw *= thumbSpeed;
+
+			GW::MATH::GMATRIXF yawMatrix;
+			GW::MATH::GMatrix::IdentityF(yawMatrix);
+			GW::MATH::GMatrix::RotateYLocalF(yawMatrix, totalYaw, yawMatrix);
+			GW::MATH::GVECTORF originalPos;
+			originalPos.x = gMatrices.view.row4.x;
+			originalPos.y = gMatrices.view.row4.y;
+			originalPos.z = gMatrices.view.row4.z;
+			originalPos.w = gMatrices.view.row4.w;
+			GW::MATH::GMatrix::MultiplyMatrixF(gMatrices.view, yawMatrix, gMatrices.view);
+			gMatrices.view.row4.x = originalPos.x;
+			gMatrices.view.row4.y = originalPos.y;
+			gMatrices.view.row4.z = originalPos.z;
+			gMatrices.view.row4.w = originalPos.w;
+		}
+
+		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
+		gShaderModelData.viewMatrix = gMatrices.view;
+		//gVertexShaderData.viewMatrix = gMatrices.view;
+
+		cameraTimePoint = std::chrono::high_resolution_clock::now();
+	}
+
+	void Render()
+	{
+		// grab the current Vulkan commandBuffer
+		unsigned int currentBuffer;
+		vlk.GetSwapchainCurrentImage(currentBuffer);
+		VkCommandBuffer commandBuffer;
+		vlk.GetCommandBuffer(currentBuffer, (void**)&commandBuffer);
+		// what is the current client area dimensions?
+		unsigned int width, height;
+		win.GetClientWidth(width);
+		win.GetClientHeight(height);
+		// setup the pipeline's dynamic settings
+		VkViewport viewport = {
+            0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1
+        };
+        VkRect2D scissor = { {0, 0}, {width, height} };
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+		// Update Camera
+		vlk.GetAspectRatio(gCamera.aspectRatio);
+		GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
+			gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
+		gShaderModelData.projectionMatrix = gMatrices.projection;
+
+		// Update Light
+		gShaderModelData.lightDirection = gLight.Direction;
+		gShaderModelData.lightColor = gLight.Color;
+		
+		// Bind Matrix Descriptor Sets to Vertex Shader
+		unsigned int currentImageIndex;
+		vlk.GetSwapchainCurrentImage(currentImageIndex);
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
+			0, 1, &gMatrixDescriptorSets[currentImageIndex], 0, nullptr);
+		GvkHelper::write_to_buffer(device, gMatrixData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
+
+		VkDeviceSize offsets[] = { 0 };
+		PushConstants pushConstants = { 0, 0};
+
+		unsigned int diffuseOffset = 1;
+		unsigned int specularOffset = 1;
+		unsigned int normalOffset = 1;
+		for (int i = 0; i < gObjects.size(); i++)
+		{
+			graphics::MODEL obj = gObjects[i];
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &(vkObjects[i].vertexHandle), offsets);
+			vkCmdBindIndexBuffer(commandBuffer, vkObjects[i].indexHandle, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
+			
+			// Reset offset counters
+			unsigned int tDiffuseCount = 0;
+			unsigned int tSpecularCount = 0;
+			unsigned int tNormalCount = 0;
+
+			// Loop through each submesh and bind textures/offsets
+			for (int j = 0; j < obj.meshCount; j++)
+			{
+				// Bind Diffuse Texture Descriptor Sets to Pixel Shader
+				if (obj.materialInfo.diffuseCount > tDiffuseCount)
+				{
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 1, 1,
+						&(gDiffuseTextureDescriptorSets[diffuseOffset++]), 0, nullptr);
+					++tDiffuseCount;
+				}
+				else
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 1, 1,
+						&(gDiffuseTextureDescriptorSets[0]), 0, nullptr);
+
+				// Bind Specular Texture Descriptor Sets to Pixel Shader
+				if (obj.materialInfo.specularCount > tSpecularCount)
+				{
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 2, 1,
+						&(gSpecularTextureDescriptorSets[specularOffset++]), 0, nullptr);
+					++tSpecularCount;
+				}
+				else
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 2, 1,
+						&(gSpecularTextureDescriptorSets[0]), 0, nullptr);
+
+				// Bind Normal Texture Descriptor Sets to Pixel Shader
+				if (obj.materialInfo.normalCount > tNormalCount)
+				{
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 3, 1,
+						&(gNormalTextureDescriptorSets[normalOffset++]), 0, nullptr);
+					++tNormalCount;
+				}
+				else
+					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+						pipelineLayout, 3, 1,
+						&(gNormalTextureDescriptorSets[0]), 0, nullptr);
+
+				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+					0, sizeof(PushConstants), &pushConstants);
+				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].drawInfo.indexCount, obj.instanceCount, 
+					obj.meshes[j].drawInfo.indexOffset, 0, 0);
+				pushConstants.material_offset += 1;
+			}
+
+			pushConstants.matrix_offset += obj.instanceCount;
+		}
+	}
+
+	void CheckCommands()
+	{
+		float keyState;
+		gInputProxy.GetState(G_KEY_F1, keyState);
+		if (keyState > 0 && !gLevelSelector.IsCurrentlySelectingFile())
+		{
+			while (!gLevelSelector.SelectNewLevel(true))
+				;
+			CleanUpLevel();
+			while (gLevelSelector.ParseSelectedLevel() != LevelSelector::OK)
+			{
+				MessageBox(NULL, L"Unable to parse level!",
+					L"Error (Parsing Level)",
+					MB_OK);
+			}
+			
+			ChangeLevel(gLevelSelector.levelParser.ModelsToVector(), gLevelSelector.levelParser.CamerasToVector());
+			InitializeGeometry();
+			AllocateDescriptorSets();
+			LoadTextures();
+		}
+	}
+
+private:
+	void ChangeLevel(std::vector<graphics::MODEL> _objects, std::vector<graphics::CAMERA> _cameras)
+	{
+		gObjects = _objects;
+		gCameras = _cameras;
+
+		maxCameraSpeed = 13.0f;
+		minCameraSpeed = 0.1f;
+		maxSensitivity = G_PI * 1000 * 10;
+		minSensitivity = G_PI * 1000 * 0.5f;
+		maxLightMovementSpeed = 16.0f;
+		minLightMovementSpeed = 0.5f;
+
+		inputModifiers.CameraSpeed = (maxCameraSpeed + minCameraSpeed) / 2;
+		inputModifiers.LookSensitivity = (maxSensitivity + minSensitivity) / 4;
+		inputModifiers.LightMovementSpeed = (maxLightMovementSpeed + minLightMovementSpeed) / 2;
+
+		// Set up main camera
+		GW::MATH::GMatrix::IdentityF(DefaultCamera.worldMatrix);
+		DefaultCamera.farPlane = 1000.0f;
+		DefaultCamera.nearPlane = 0.1f;
+		DefaultCamera.FOV = G_DEGREE_TO_RADIAN(90);
+
+		gCamera = gCameras.size() == 0 ? DefaultCamera : gCameras[0];
+
+		// Set Up Matrices
+		{
+			GW::MATH::GMatrix::IdentityF(gMatrices.world);
+			GW::MATH::GMatrix::InverseF(gCamera.worldMatrix, gMatrices.view);
+
+			vlk.GetAspectRatio(gCamera.aspectRatio);
+			GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
+				gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
+		}
+
+		// Set Shader Model Data
+		{
+			gShaderModelData.lightColor = gLight.Color;
+			gShaderModelData.lightDirection = gLight.Direction;
+			gShaderModelData.viewMatrix = gMatrices.view;
+			gShaderModelData.projectionMatrix = gMatrices.projection;
+
+			gShaderModelData.ambientColor.x = 0.25f;
+			gShaderModelData.ambientColor.y = 0.25f;
+			gShaderModelData.ambientColor.z = 0.35f;
+			gShaderModelData.ambientColor.w = 1;
+			gShaderModelData.cameraPos.x = gCamera.worldMatrix.row4.x;
+			gShaderModelData.cameraPos.y = gCamera.worldMatrix.row4.z;
+			gShaderModelData.cameraPos.z = gCamera.worldMatrix.row4.y;
+			gShaderModelData.cameraPos.w = gCamera.worldMatrix.row4.w;
+		}
+
+		// Create Vertex/Index Buffers
+
+		unsigned int totalNumVerts = 0;
+		vkObjects.resize(gObjects.size());
+		for (int i = 0; i < gObjects.size(); i++)
+		{
+			// Create Vertex Buffer
+			unsigned int numBytes = sizeof(graphics::VERTEX) * gObjects[i].vertexCount;
+			GvkHelper::create_buffer(physicalDevice, device, numBytes,
+				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].vertexHandle), &(vkObjects[i].vertexData));
+			GvkHelper::write_to_buffer(device, vkObjects[i].vertexData, &(gObjects[i].vertices.front()), numBytes);
+
+			// Create Index Buffer
+			numBytes = sizeof(unsigned int) * gObjects[i].indexCount;
+			GvkHelper::create_buffer(physicalDevice, device, numBytes,
+				VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].indexHandle), &(vkObjects[i].indexData));
+			GvkHelper::write_to_buffer(device, vkObjects[i].indexData, &(gObjects[i].indices.front()), numBytes);
+		}
+	}
+
+	void InitializeGeometry()
+	{
+		unsigned int chainSwapCount;
+		vlk.GetSwapchainImageCount(chainSwapCount);
+		gMatrixBuffers.resize(chainSwapCount);
+		gMatrixData.resize(chainSwapCount);
+		for (unsigned int i = 0; i < chainSwapCount; i++)
+		{
+			GvkHelper::create_buffer(physicalDevice, device, sizeof(SHADER_MODEL_DATA),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &gMatrixBuffers[i], &gMatrixData[i]);
+		}
+		WriteModelsToShaderData();
+	}
+
+	void AllocateDescriptorSets()
+	{
+		VkResult res;
+
 		// Create a descriptor pool!
 		// this is how many unique descriptor sets you want to allocate 
 		// we need one for each uniform buffer and one for each unique texture
 		unsigned int diffuseDescriptorCount = gLevelSelector.levelParser.levelInfo.totalDiffuseCount + 1;
 		unsigned int specularDescriptorCount = gLevelSelector.levelParser.levelInfo.totalSpecularCount + 1;
 		unsigned int normalDescriptorCount = gLevelSelector.levelParser.levelInfo.totalNormalCount + 1;
-		unsigned int total_descriptorsets = gMatrixBuffers.size() 
+		unsigned int total_descriptorsets = gMatrixBuffers.size()
 			+ diffuseDescriptorCount + specularDescriptorCount + normalDescriptorCount;
 		VkDescriptorPoolSize descriptorPoolSize[4] = {
 			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, gMatrixBuffers.size() },
@@ -502,6 +955,9 @@ public:
 		writeDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		VkDescriptorBufferInfo descriptorBufferInfo = { nullptr, 0, VK_WHOLE_SIZE };
 		writeDescriptorSet.pBufferInfo = &descriptorBufferInfo;
+
+		unsigned int chainSwapCount;
+		vlk.GetSwapchainImageCount(chainSwapCount);
 		gMatrixDescriptorSets.resize(chainSwapCount);
 		for (int i = 0; i < chainSwapCount; i++)
 		{
@@ -515,378 +971,6 @@ public:
 			descriptorBufferInfo.buffer = gMatrixBuffers[i];
 			vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
 		}
-	
-		// Descriptor pipeline layout
-		VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
-		pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipeline_layout_create_info.setLayoutCount = 4;
-		VkDescriptorSetLayout layouts[4] = { 
-			descriptorSetLayout_Vertex, 
-			descriptorSetLayout_Pixel, descriptorSetLayout_Pixel, descriptorSetLayout_Pixel };
-		pipeline_layout_create_info.pSetLayouts = layouts;
-		
-		// Push Constant layout
-		VkPushConstantRange constantRange;
-		constantRange = {};
-		constantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-		constantRange.offset = 0;
-		constantRange.size = sizeof(PushConstants);
-		pipeline_layout_create_info.pushConstantRangeCount = 1;
-		pipeline_layout_create_info.pPushConstantRanges = &constantRange;
-		vkCreatePipelineLayout(device, &pipeline_layout_create_info, nullptr, &pipelineLayout);
-
-	    // Pipeline State... (FINALLY) 
-		VkGraphicsPipelineCreateInfo pipeline_create_info = {};
-		pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-		pipeline_create_info.stageCount = 2;
-		pipeline_create_info.pStages = stage_create_info;
-		pipeline_create_info.pInputAssemblyState = &assembly_create_info;
-		pipeline_create_info.pVertexInputState = &input_vertex_info;
-		pipeline_create_info.pViewportState = &viewport_create_info;
-		pipeline_create_info.pRasterizationState = &rasterization_create_info;
-		pipeline_create_info.pMultisampleState = &multisample_create_info;
-		pipeline_create_info.pDepthStencilState = &depth_stencil_create_info;
-		pipeline_create_info.pColorBlendState = &color_blend_create_info;
-		pipeline_create_info.pDynamicState = &dynamic_create_info;
-		pipeline_create_info.layout = pipelineLayout;
-		pipeline_create_info.renderPass = renderPass;
-		pipeline_create_info.subpass = 0;
-		pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
-		vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, 
-			&pipeline_create_info, nullptr, &pipeline);
-		
-		// With pipeline created, lets load in our texture and bind it to our descriptor set
-		LoadTextures();
-
-		/***************** CLEANUP / SHUTDOWN ******************/
-		// GVulkanSurface will inform us when to release any allocated resources
-		shutdown.Create(vlk, [&]() {
-			if (+shutdown.Find(GW::GRAPHICS::GVulkanSurface::Events::RELEASE_RESOURCES, true)) {
-				CleanUp(); // unlike D3D we must be careful about destroy timing
-			}
-		});
-	}
-
-	void UpdateCamera()
-	{
-		static std::chrono::steady_clock::time_point timePoint = std::chrono::high_resolution_clock::now();
-		auto currentTime = std::chrono::high_resolution_clock::now();
-		float timePassed = std::chrono::duration<float, std::milli>(currentTime - timePoint).count() / 1000; // Time in seconds																								 
-		// TODO: Part 4c
-		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
-		// TODO: Part 4d
-		float temp = 0;
-		GW::MATH::GVECTORF translationVector;
-		bool bControllerConnected;
-		gControllerProxy.IsConnected(0, bControllerConnected);
-
-		// Camera Speed
-		float scrollChange = 0.0f;
-
-
-
-		// Look Sensitivity
-
-
-		// y-axis Movement
-		float yChange = 0;
-		gInputProxy.GetState(G_KEY_SPACE, temp);
-		yChange += temp;
-		gInputProxy.GetState(G_KEY_LEFTSHIFT, temp);
-		yChange -= temp;
-		if (bControllerConnected)
-		{
-			gControllerProxy.GetState(0, G_RIGHT_TRIGGER_AXIS, temp);
-			yChange += temp;
-			gControllerProxy.GetState(0, G_LEFT_TRIGGER_AXIS, temp);
-			yChange -= temp;
-		}
-		yChange = yChange * inputModifiers.CameraSpeed * timePassed;
-		translationVector.x = translationVector.z = 0;
-		translationVector.w = 1;
-		translationVector.y = yChange;
-		GW::MATH::GMatrix::TranslateGlobalF(gMatrices.view, translationVector, gMatrices.view);
-
-		// x-axis Movement
-		float xChange = 0;
-		gInputProxy.GetState(G_KEY_D, temp);
-		xChange += temp;
-		gInputProxy.GetState(G_KEY_A, temp);
-		xChange -= temp;
-		if (bControllerConnected)
-		{
-			gControllerProxy.GetState(0, G_LX_AXIS, temp);
-			xChange += temp;
-		}
-		xChange = xChange * inputModifiers.CameraSpeed * timePassed;
-
-		// z-axis Movement
-		float zChange = 0;
-		gInputProxy.GetState(G_KEY_W, temp);
-		zChange += temp;
-		gInputProxy.GetState(G_KEY_S, temp);
-		zChange -= temp;
-		if (bControllerConnected)
-		{
-			gControllerProxy.GetState(0, G_LY_AXIS, temp);
-			zChange += temp;
-		}
-		zChange = zChange * inputModifiers.CameraSpeed * timePassed;
-
-		translationVector.x = xChange;
-		translationVector.z = zChange;
-		translationVector.y = 0;
-		translationVector.w = 1;
-		GW::MATH::GMatrix::TranslateLocalF(gMatrices.view, translationVector, gMatrices.view);
-
-
-		// TODO: Part 4e
-		float thumbSpeed = inputModifiers.LookSensitivity * timePassed;
-		float mouseDelta[2];
-		unsigned int windowHeight;
-		win.GetHeight(windowHeight);
-		bool bRMBClicked = false;
-		gInputProxy.GetState(G_BUTTON_RIGHT, temp);
-		bRMBClicked = temp > 0;
-		bool bUpdatePitchAndYaw = gInputProxy.GetMouseDelta(mouseDelta[0], mouseDelta[1]) != GW::GReturn::REDUNDANT;
-		if (bRMBClicked && bUpdatePitchAndYaw)
-		{
-			float totalPitch = gCamera.FOV * mouseDelta[1] / windowHeight;
-			if (bControllerConnected)
-			{
-				gControllerProxy.GetState(0, G_RY_AXIS, temp);
-				totalPitch += temp;
-			}
-			totalPitch *= thumbSpeed;
-
-			GW::MATH::GMATRIXF pitchMatrix;
-			GW::MATH::GMatrix::IdentityF(pitchMatrix);
-			GW::MATH::GMatrix::RotateXGlobalF(pitchMatrix, totalPitch, pitchMatrix);
-			GW::MATH::GMatrix::MultiplyMatrixF(pitchMatrix, gMatrices.view, gMatrices.view);
-		}
-
-		unsigned int windowWidth;
-		win.GetWidth(windowWidth);
-
-		if (bRMBClicked && bUpdatePitchAndYaw)
-		{
-			float totalYaw = gCamera.FOV * gCamera.aspectRatio * mouseDelta[0] / windowWidth;
-			if (bControllerConnected)
-			{
-				gControllerProxy.GetState(0, G_RX_AXIS, temp);
-				totalYaw += temp;
-			}
-			totalYaw *= thumbSpeed;
-
-			GW::MATH::GMATRIXF yawMatrix;
-			GW::MATH::GMatrix::IdentityF(yawMatrix);
-			GW::MATH::GMatrix::RotateYLocalF(yawMatrix, totalYaw, yawMatrix);
-			GW::MATH::GVECTORF originalPos;
-			originalPos.x = gMatrices.view.row4.x;
-			originalPos.y = gMatrices.view.row4.y;
-			originalPos.z = gMatrices.view.row4.z;
-			originalPos.w = gMatrices.view.row4.w;
-			GW::MATH::GMatrix::MultiplyMatrixF(gMatrices.view, yawMatrix, gMatrices.view);
-			gMatrices.view.row4.x = originalPos.x;
-			gMatrices.view.row4.y = originalPos.y;
-			gMatrices.view.row4.z = originalPos.z;
-			gMatrices.view.row4.w = originalPos.w;
-		}
-
-		GW::MATH::GMatrix::InverseF(gMatrices.view, gMatrices.view);
-		gShaderModelData.viewMatrix = gMatrices.view;
-		//gVertexShaderData.viewMatrix = gMatrices.view;
-
-		timePoint = std::chrono::high_resolution_clock::now();
-	}
-
-	void Render()
-	{
-		// grab the current Vulkan commandBuffer
-		unsigned int currentBuffer;
-		vlk.GetSwapchainCurrentImage(currentBuffer);
-		VkCommandBuffer commandBuffer;
-		vlk.GetCommandBuffer(currentBuffer, (void**)&commandBuffer);
-		// what is the current client area dimensions?
-		unsigned int width, height;
-		win.GetClientWidth(width);
-		win.GetClientHeight(height);
-		// setup the pipeline's dynamic settings
-		VkViewport viewport = {
-            0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1
-        };
-        VkRect2D scissor = { {0, 0}, {width, height} };
-		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-		// Update Camera
-		vlk.GetAspectRatio(gCamera.aspectRatio);
-		GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
-			gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
-		gShaderModelData.projectionMatrix = gMatrices.projection;
-		//gVertexShaderData.projectionMatrix = gMatrices.projection;
-		
-		// now we can draw
-		unsigned int currentImageIndex;
-		vlk.GetSwapchainCurrentImage(currentImageIndex);
-
-		// Bind Matrix Descriptor Sets to Vertex Shader
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout,
-			0, 1, &gMatrixDescriptorSets[currentImageIndex], 0, nullptr);
-		GvkHelper::write_to_buffer(device, gMatrixData[currentImageIndex], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
-
-		VkDeviceSize offsets[] = { 0 };
-		PushConstants pushConstants = { 0, 0};
-
-		unsigned int diffuseOffset = 1;
-		unsigned int specularOffset = 1;
-		unsigned int normalOffset = 1;
-		for (int i = 0; i < gObjects.size(); i++)
-		{
-			graphics::MODEL obj = gObjects[i];
-			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &(vkObjects[i].vertexHandle), offsets);
-			vkCmdBindIndexBuffer(commandBuffer, vkObjects[i].indexHandle, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
-			
-			// Reset offset counters
-			unsigned int tDiffuseCount = 0;
-			unsigned int tSpecularCount = 0;
-			unsigned int tNormalCount = 0;
-
-			// Loop through each submesh and bind textures/offsets
-			for (int j = 0; j < obj.meshCount; j++)
-			{
-				// Bind Diffuse Texture Descriptor Sets to Pixel Shader
-				if (obj.materialInfo.diffuseCount > tDiffuseCount)
-				{
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 1, 1,
-						&(gDiffuseTextureDescriptorSets[diffuseOffset++]), 0, nullptr);
-					++tDiffuseCount;
-				}
-				else
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 1, 1,
-						&(gDiffuseTextureDescriptorSets[0]), 0, nullptr);
-
-				// Bind Specular Texture Descriptor Sets to Pixel Shader
-				if (obj.materialInfo.specularCount > tSpecularCount)
-				{
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 2, 1,
-						&(gSpecularTextureDescriptorSets[specularOffset++]), 0, nullptr);
-					++tSpecularCount;
-				}
-				else
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 2, 1,
-						&(gSpecularTextureDescriptorSets[0]), 0, nullptr);
-
-				// Bind Normal Texture Descriptor Sets to Pixel Shader
-				if (obj.materialInfo.normalCount > tNormalCount)
-				{
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 3, 1,
-						&(gNormalTextureDescriptorSets[normalOffset++]), 0, nullptr);
-					++tNormalCount;
-				}
-				else
-					vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-						pipelineLayout, 3, 1,
-						&(gNormalTextureDescriptorSets[0]), 0, nullptr);
-
-				vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-					0, sizeof(PushConstants), &pushConstants);
-				vkCmdDrawIndexed(commandBuffer, obj.meshes[j].drawInfo.indexCount, obj.instanceCount, 
-					obj.meshes[j].drawInfo.indexOffset, 0, 0);
-				pushConstants.material_offset += 1;
-			}
-
-			pushConstants.matrix_offset += obj.materialInfo.materialCount;
-		}
-	}
-
-	void CheckCommands()
-	{
-		float keyState;
-		gInputProxy.GetState(G_KEY_F1, keyState);
-		if (keyState > 0 && !gLevelSelector.IsCurrentlySelectingFile() && gLevelSelector.SelectNewLevel(false))
-		{
-			CleanUpVertexAndIndexBuffers();
-			gLevelSelector.ParseSelectedLevel();
-			ChangeLevel(gLevelSelector.levelParser.ModelsToVector(), gLevelSelector.levelParser.CamerasToVector());
-			WriteModelsToShaderData();
-		}
-	}
-
-private:
-	void ChangeLevel(std::vector<graphics::MODEL> _objects, std::vector<graphics::CAMERA> _cameras)
-	{
-		gObjects = _objects;
-		gCameras = _cameras;
-
-		maxCameraSpeed = 13.0f;
-		minCameraSpeed = 0.1f;
-		maxSensitivity = G_PI * 1000 * 10;
-		minSensitivity = G_PI * 1000 * 0.5f;
-		inputModifiers.CameraSpeed = (maxCameraSpeed + minCameraSpeed) / 2;
-		inputModifiers.LookSensitivity = (maxSensitivity + minSensitivity) / 4;
-
-		// Set up main camera
-		GW::MATH::GMatrix::IdentityF(DefaultCamera.worldMatrix);
-		DefaultCamera.farPlane = 1000.0f;
-		DefaultCamera.nearPlane = 0.1f;
-		DefaultCamera.FOV = G_DEGREE_TO_RADIAN(90);
-
-		gCamera = gCameras.size() == 0 ? DefaultCamera : gCameras[0];
-
-		// Set Up Matrices
-		{
-			GW::MATH::GMatrix::IdentityF(gMatrices.world);
-			GW::MATH::GMatrix::InverseF(gCamera.worldMatrix, gMatrices.view);
-
-			vlk.GetAspectRatio(gCamera.aspectRatio);
-			GW::MATH::GMatrix::ProjectionDirectXLHF(gCamera.FOV, gCamera.aspectRatio,
-				gCamera.nearPlane, gCamera.farPlane, gMatrices.projection);
-		}
-
-		// Set Shader Model Data
-		{
-			gShaderModelData.lightColor = gLight.Color;
-			gShaderModelData.lightDirection = gLight.Direction;
-			gShaderModelData.viewMatrix = gMatrices.view;
-			gShaderModelData.projectionMatrix = gMatrices.projection;
-
-			gShaderModelData.ambientColor.x = 0.25f;
-			gShaderModelData.ambientColor.y = 0.25f;
-			gShaderModelData.ambientColor.z = 0.35f;
-			gShaderModelData.ambientColor.w = 1;
-			gShaderModelData.cameraPos.x = gCamera.worldMatrix.row4.x;
-			gShaderModelData.cameraPos.y = gCamera.worldMatrix.row4.z;
-			gShaderModelData.cameraPos.z = gCamera.worldMatrix.row4.y;
-			gShaderModelData.cameraPos.w = gCamera.worldMatrix.row4.w;
-		}
-
-		// Create Vertex/Index Buffers
-
-		unsigned int totalNumVerts = 0;
-		vkObjects.resize(gObjects.size());
-		for (int i = 0; i < gObjects.size(); i++)
-		{
-			// Create Vertex Buffer
-			unsigned int numBytes = sizeof(graphics::VERTEX) * gObjects[i].vertexCount;
-			GvkHelper::create_buffer(physicalDevice, device, numBytes,
-				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].vertexHandle), &(vkObjects[i].vertexData));
-			GvkHelper::write_to_buffer(device, vkObjects[i].vertexData, &(gObjects[i].vertices.front()), numBytes);
-
-			// Create Index Buffer
-			numBytes = sizeof(unsigned int) * gObjects[i].indexCount;
-			GvkHelper::create_buffer(physicalDevice, device, numBytes,
-				VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-				VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &(vkObjects[i].indexHandle), &(vkObjects[i].indexData));
-			GvkHelper::write_to_buffer(device, vkObjects[i].indexData, &(gObjects[i].indices.front()), numBytes);
-		}
 	}
 
 	bool LoadTextures()
@@ -894,6 +978,7 @@ private:
 		VkQueue queue;
 		VkCommandPool commandPool;
 		VkPhysicalDevice physDevice;
+		VkResult vr;
 		vlk.GetGraphicsQueue((void**)&queue);
 		vlk.GetCommandPool((void**)&commandPool);
 		vlk.GetPhysicalDevice((void**)&physDevice);
@@ -1045,7 +1130,7 @@ private:
 		samplerInfo.unnormalizedCoordinates = VK_FALSE;
 		samplerInfo.pNext = nullptr;
 
-		VkResult vr = vkCreateSampler(device, &samplerInfo, nullptr, &gTextureSampler);
+		vr = vkCreateSampler(device, &samplerInfo, nullptr, &gTextureSampler);
 		if (vr != VkResult::VK_SUCCESS)
 		{
 			std::cerr << "ERROR: LoadTextures - Failed to create sampler!\n";
@@ -1053,6 +1138,18 @@ private:
 		}
 
 		// Then create image views for diffuse textures
+		VkImageViewCreateInfo viewInfo = {};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.flags = 0;
+		viewInfo.components = {
+			VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
+			VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A
+		};
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewInfo.subresourceRange.baseMipLevel = 0;
+		viewInfo.subresourceRange.baseArrayLayer = 0;
+		viewInfo.pNext = nullptr;
+
 		for (diffuseIndex = specularIndex = normalIndex = 0; 
 			diffuseIndex < gDiffuseTextures.size() 
 				|| specularIndex < gSpecularTextures.size() 
@@ -1061,15 +1158,7 @@ private:
 		{
 			// Textures are not directly accessed by the shaders and are abstracted
 			// by image views containing additional information and sub resource ranges.
-			VkImageViewCreateInfo viewInfo = {};
-			// Set the non-default values.
-			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			viewInfo.flags = 0;
-			viewInfo.components = {
-				VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
-				VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A
-			};
-
+		
 			// Create diffuse image view
 			if (diffuseIndex < gDiffuseTextures.size()) 
 			{
@@ -1082,7 +1171,7 @@ private:
 				viewInfo.subresourceRange.baseMipLevel = 0;
 				viewInfo.subresourceRange.baseArrayLayer = 0;
 				viewInfo.pNext = nullptr;
-				VkResult vr = vkCreateImageView(device, &viewInfo, nullptr,
+				vr = vkCreateImageView(device, &viewInfo, nullptr,
 					&(gDiffuseTextureViews[diffuseIndex]));
 				if (vr != VkResult::VK_SUCCESS)
 				{
@@ -1233,10 +1322,16 @@ private:
 		//GvkHelper::write_to_buffer(device, gMatrixData[index], &gShaderModelData, sizeof(SHADER_MODEL_DATA));
 	}
 
-	void CleanUpVertexAndIndexBuffers()
+	void CleanUpLevel()
 	{
 		// wait till everything has completed
 		vkDeviceWaitIdle(device);
+
+		for (VkBuffer& buffer : gMatrixBuffers)
+			vkDestroyBuffer(device, buffer, nullptr);
+		for (VkDeviceMemory& data : gMatrixData)
+			vkFreeMemory(device, data, nullptr);
+
 		// Release allocated buffers, shaders & pipeline
 		for (vkObject vkObj : vkObjects)
 		{
@@ -1245,21 +1340,13 @@ private:
 			vkDestroyBuffer(device, vkObj.vertexHandle, nullptr);
 			vkFreeMemory(device, vkObj.vertexData, nullptr);
 		}
-	}
-
-	void CleanUp()
-	{
-		CleanUpVertexAndIndexBuffers();
-		
-		for (VkBuffer& buffer : gMatrixBuffers)
-			vkDestroyBuffer(device, buffer, nullptr);
-		for (VkDeviceMemory& data : gMatrixData)
-			vkFreeMemory(device, data, nullptr);
 
 		// Destroy Texture Resources
 		for (VkImageView& imageView : gDiffuseTextureViews)
 			vkDestroyImageView(device, imageView, nullptr);
 		for (VkImageView& imageView : gSpecularTextureViews)
+			vkDestroyImageView(device, imageView, nullptr);
+		for (VkImageView& imageView : gNormalTextureViews)
 			vkDestroyImageView(device, imageView, nullptr);
 		for (ktxVulkanTexture& textureData : gDiffuseTextures)
 		{
@@ -1271,15 +1358,28 @@ private:
 			vkFreeMemory(device, textureData.deviceMemory, nullptr);
 			vkDestroyImage(device, textureData.image, nullptr);
 		}
-		
+		for (ktxVulkanTexture& textureData : gNormalTextures)
+		{
+			vkFreeMemory(device, textureData.deviceMemory, nullptr);
+			vkDestroyImage(device, textureData.image, nullptr);
+		}
+
+		vkDestroySampler(device, gTextureSampler, nullptr);
+
+		vkDestroyDescriptorPool(device, descPool, nullptr);
+	}
+
+
+	void CleanUp()
+	{
+		CleanUpLevel();
 
 		vkDestroyShaderModule(device, vertexShader, nullptr);
 		vkDestroyShaderModule(device, pixelShader, nullptr);
+		
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout_Vertex, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout_Pixel, nullptr);
-		vkDestroySampler(device, gTextureSampler, nullptr);
-		vkDestroyDescriptorPool(device, descPool, nullptr);
-		
+
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyPipeline(device, pipeline, nullptr);
 	}

@@ -7,7 +7,7 @@
 namespace graphics {
 	// Constants
 #define REND_DEFAULT_CAMERA { { 0.75f, 0.25f, -1.5f, 1.0f }, { 0.15f, 0.75f, 0.0f, 1.0f }, G_DEGREE_TO_RADIAN(65), 0.1f, 100 }
-#define REND_DEFAULT_LIGHT { {-1.0f, -1.0f, 2.0f, 1.0f}, { 0.6f, 0.9f, 1.0f, 1.0f } }
+#define REND_DEFAULT_LIGHT { {-1.0f, -1.0f, 8.0f, 1.0f}, { 0.6f, 0.9f, 1.0f, 1.0f } }
 
 	struct VECTOR {
 		float x, y, z;
@@ -45,7 +45,7 @@ namespace graphics {
 		BATCH drawInfo;
 		unsigned materialIndex;
 	};
-
+#pragma pack(pop)
 	struct MATERIAL_INFO
 	{
 		unsigned materialCount = 0;
@@ -55,8 +55,6 @@ namespace graphics {
 	};
 
 	struct MODEL {
-		MATERIAL_INFO materialInfo;
-		std::string modelName;
 		unsigned vertexCount = 0;
 		unsigned indexCount = 0;
 		unsigned meshCount = 0;
@@ -70,14 +68,24 @@ namespace graphics {
 		std::vector<graphics::BATCH> batches;
 		std::vector<graphics::MESH> meshes;
 		std::vector<GW::MATH::GMATRIXF> worldMatrices;
-
+		MATERIAL_INFO materialInfo;
+		std::string modelName;
 		void clear()
 		{
+			vertexCount = indexCount = meshCount = instanceCount = 0;
+			
 			vertices.clear();
 			indices.clear();
 			materials.clear();
 			batches.clear();
 			meshes.clear();
+
+			diffuseTextures.clear();
+			specularTextures.clear();
+			normalTextures.clear();
+
+			materialInfo = { 0,0,0,0 };
+			modelName.clear();
 		}
 	};
 

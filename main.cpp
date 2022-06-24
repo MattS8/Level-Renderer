@@ -19,7 +19,6 @@ using namespace GW;
 using namespace CORE;
 using namespace SYSTEM;
 using namespace GRAPHICS;
-
 // lets pop a window and use Vulkan to clear to a red screen
 int main()
 {
@@ -52,23 +51,12 @@ int main()
 #endif
 		{
 			Renderer renderer(win, vulkan);
-			
-			float keyState = 0;
 			while (+win.ProcessWindowEvents())
 			{
 				if (+vulkan.StartFrame(2, clrAndDepth))
 				{
-					//gInputProxy.GetState(G_KEY_L, keyState);
-					//if (keyState > 0 && !levelSelector.IsCurrentlySelectingFile())
-					//{
-					//	parser.ParseGameLevel(levelSelector.SelectNewLevel(false));
-					//	auto models = parser.ModelsToVector();
-					//	auto cameras = parser.CamerasToVector();
-
-					//	//renderer.LoadLevel(models, cameras);
-					//}
-
 					renderer.CheckCommands();
+					renderer.UpdateLight();
 					renderer.UpdateCamera();
 					renderer.Render();
 					vulkan.EndFrame(true);

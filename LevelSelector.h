@@ -54,6 +54,7 @@ namespace LevelSelector
 		void Clear();
 
 		// Error Functions
+		void HandleError();
 		int ErrOpeningFile();
 		int ErrMalformedFile();
 		int ErrFindingModelFile(std::string& filePath);
@@ -61,7 +62,6 @@ namespace LevelSelector
 		// Load Handlers
 		int LoadMesh(std::string meshName);
 		int LoadCamera(std::string cameraName);
-		int LoadLight(const char* lightFile);
 
 		// Parse Helpers
 		int ParseMatrix(GW::MATH::GMATRIXF& matrix);
@@ -69,7 +69,7 @@ namespace LevelSelector
 		void ParseMaterials();
 
 		// String Parser
-		std::string GetMeshNameFromLine();
+		std::string GetNameFromLine();
 		std::string FormatTexturePath(const char* filePath);
 
 	public:
@@ -99,7 +99,7 @@ namespace LevelSelector
 
 		inline std::string GetSelectedFile() { return selectedFile; }
 		inline bool IsCurrentlySelectingFile() { return currentlySelectingFile; }
-		inline void ParseSelectedLevel() { levelParser.ParseGameLevel(selectedFile); }
+		inline int ParseSelectedLevel() { return levelParser.ParseGameLevel(selectedFile); }
 	};
 }
 

@@ -9,7 +9,7 @@ bool LevelSelector::Selector::SelectNewLevel(bool showPrompt = false)
 {
 
 	if (showPrompt)
-		MessageBox(NULL, L"Levels can be loaded by pressing the 'F1' key. \n\nAccepted files can be in either .txt or .lvl format. \n\nFor more information about my custom .lvl format, see the documentation!",
+		MessageBox(NULL, L"Levels can be loaded by pressing the 'F1' key. \n\nCamera Controls: WASD\n\nLight Controls NUM Pad 4(left) 5(backwards) 6(right) 8(forwards) +(up) enter(down)\n\nReset the light using NUM Pad 0.\n\n",
 			L"Level Selection",
 			MB_OK);
 
@@ -41,8 +41,8 @@ bool LevelSelector::Selector::SelectNewLevel(bool showPrompt = false)
 	return newFileSelected;
 }
 
-const char* LevelSelector::modelAssetPath = "../Model Assets/H2B/";
-const char* LevelSelector::textureAssetPath = "../Model Assets/Textures/";
+const char* LevelSelector::modelAssetPath = "../Assets/Models/";
+const char* LevelSelector::textureAssetPath = "../Assets/Textures/";
 const char* LevelSelector::textureExt = ".ktx";
 const char* LevelSelector::modelAssetExt = ".h2b";
 
@@ -65,7 +65,7 @@ int LevelSelector::Parser::ParseGameLevel(std::string& filePath)
 	{
 		trim(line2Parse);
 
-		if (line2Parse.at(0) == '#')
+		if (line2Parse.size() == 0 || line2Parse.at(0) == '#')
 			continue;
 
 		// Handle Mesh Object
@@ -74,7 +74,7 @@ int LevelSelector::Parser::ParseGameLevel(std::string& filePath)
 			if (!std::getline(fileHandler, line2Parse))
 				return ErrMalformedFile();
 
-			std::string meshName = GetMeshNameFromLine();
+			std::string meshName = GetNameFromLine();
 
 			if (LoadMesh(meshName) != LevelSelector::OK)
 				return ErrMalformedFile();
@@ -177,14 +177,15 @@ int LevelSelector::Parser::LoadMesh(std::string meshName)
 {
 	if (models.find(meshName) == models.end())
 	{
+		h2bParser.Clear();
 		std::string fullPath = std::string(modelAssetPath)
 			+ meshName
 			+ modelAssetExt;
+		
 		if (!h2bParser.Parse(fullPath.c_str()))
 			return ErrFindingModelFile(fullPath);
 
 		h2bParser.model.instanceCount = 1;
-		
 		ParseMaterials();
 
 		h2bParser.model.modelName = meshName;
@@ -251,11 +252,6 @@ int LevelSelector::Parser::LoadCamera(std::string cameraName)
 	return LevelSelector::OK;
 }
 
-int LevelSelector::Parser::LoadLight(const char* lightFile)
-{
-	return LevelSelector::OK;
-}
-
 void LevelSelector::Parser::ParseMaterials()
 {
 	// Add up number of Diffuse, Specular, and Normal Materials
@@ -298,7 +294,7 @@ void LevelSelector::Parser::ParseMaterials()
 }
 
 // String Parsers
-std::string LevelSelector::Parser::GetMeshNameFromLine()
+std::string LevelSelector::Parser::GetNameFromLine()
 {
 	int dotPos = line2Parse.find('.');
 
@@ -327,20 +323,28 @@ std::string LevelSelector::Parser::FormatTexturePath(const char* filePath)
 
 // Error Functions
 
+void LevelSelector::Parser::HandleError()
+{
+	fileHandler.close();
+}
+
 int LevelSelector::Parser::ErrFindingModelFile(std::string& filePath)
 {
+	HandleError();
 	std::cerr << "Level Parser - ERROR: Could not open file: " << filePath << "\n";
 	return LevelSelector::ERR_OPENING_FILE;
 }
 
 int LevelSelector::Parser::ErrMalformedFile()
 {
+	HandleError();
 	std::cerr << "Level Parser - ERROR: GameLevel file was malformed.\n";
 	return LevelSelector::ERR_MALFORMED_FILE;
 }
 
 int LevelSelector::Parser::ErrOpeningFile()
 {
+	HandleError();
 	std::cerr << "Level Parser - ERROR: Failed to open file.\n";
 	return LevelSelector::ERR_OPENING_FILE;
 }
